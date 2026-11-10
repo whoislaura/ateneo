@@ -1,0 +1,55 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.13.7"
+          enable-cache: true
+      - run: uv sync --frozen --project backend
+      - run: uv run --project backend ruff check backend infra/smoke.py
+      - run: uv run --project backend pytest backend/tests
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build
+  smoke:
+    name: Containers and smoke
+    runs-on: ubuntu-latest
+    env:
+      COMPOSE_ENV_FILE: .env.example
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose --env-file .env.example config --quiet
+      - run: docker compose --env-file .env.example up --build --wait --wait-timeout 180
+      - run: python infra/smoke.py
+      - if: failure()
+        run: docker compose --env-file .env.example logs --no-color
+      - if: always()
+        run: docker compose --env-file .env.example down --volumes

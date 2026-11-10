@@ -1,0 +1,352 @@
+[
+  {
+    "id": "AT-01",
+    "sprint": 0,
+    "owner": "Laura",
+    "assignees": [
+      "whoislaura"
+    ],
+    "title": "Crear repositorio, pipeline CI/CD, entornos y secretos; esqueleto de despliegue web"
+  },
+  {
+    "id": "AT-02",
+    "sprint": 0,
+    "owner": "Pedro",
+    "assignees": [
+      "pedrosarmientot"
+    ],
+    "title": "Definir contrato API y modelo de datos: usuarios/roles, documentos, chunks, citas, historial, exámenes, feedback"
+  },
+  {
+    "id": "AT-03",
+    "sprint": 0,
+    "owner": "Laura",
+    "assignees": [
+      "whoislaura"
+    ],
+    "title": "Diseñar esquema de ingestión: PDF a texto por página, metadatos año/asignatura/tema, chunking e índice de muestra"
+  },
+  {
+    "id": "AT-04",
+    "sprint": 0,
+    "owner": "Laura",
+    "assignees": [
+      "whoislaura"
+    ],
+    "title": "Prototipo RAG restringido al corpus con prompt y citado obligatorio; set inicial de preguntas doradas"
+  },
+  {
+    "id": "AT-05",
+    "sprint": 0,
+    "owner": "Ray",
+    "assignees": [
+      "raysanjudo2006-netizen"
+    ],
+    "title": "Wireframes mínimos y esqueleto frontend: login, layout por rol, rutas y pantallas mock de consulta, corpus, historial, examen y feedback"
+  },
+  {
+    "id": "AT-06",
+    "sprint": 0,
+    "owner": "Todos",
+    "assignees": [
+      "whoislaura",
+      "pedrosarmientot",
+      "raysanjudo2006-netizen"
+    ],
+    "title": "Cargar corpus de muestra y hacer smoke test integral en staging"
+  },
+  {
+    "id": "AT-07",
+    "sprint": 0,
+    "owner": "Todos",
+    "assignees": [
+      "whoislaura",
+      "pedrosarmientot",
+      "raysanjudo2006-netizen"
+    ],
+    "title": "Revisión funcional de Sprint 0 con el cliente"
+  },
+  {
+    "id": "AT-08",
+    "sprint": 1,
+    "owner": "Pedro",
+    "assignees": [
+      "pedrosarmientot"
+    ],
+    "title": "Autenticación y roles CU-00: login, sesión y permisos Estudiante/Profesor/Administrador"
+  },
+  {
+    "id": "AT-09",
+    "sprint": 1,
+    "owner": "Pedro",
+    "assignees": [
+      "pedrosarmientot"
+    ],
+    "title": "API de consulta CU-01: pregunta por año, asignatura y tema; orquesta RAG y devuelve respuesta + citas"
+  },
+  {
+    "id": "AT-10",
+    "sprint": 1,
+    "owner": "Pedro",
+    "assignees": [
+      "pedrosarmientot"
+    ],
+    "title": "API de gestión de corpus CU-03: subir, actualizar y retirar material por año/asignatura"
+  },
+  {
+    "id": "AT-11",
+    "sprint": 1,
+    "owner": "Pedro",
+    "assignees": [
+      "pedrosarmientot"
+    ],
+    "title": "API de historial CU-04: registrar fecha, autor, acción y resumen; exponerlo a estudiantes/profesores"
+  },
+  {
+    "id": "AT-12",
+    "sprint": 1,
+    "owner": "Pedro",
+    "assignees": [
+      "pedrosarmientot"
+    ],
+    "title": "Contrato y validación de fuentes/citas CU-05 en todas las respuestas de CU-01 y CU-02"
+  },
+  {
+    "id": "AT-13",
+    "sprint": 1,
+    "owner": "Pedro",
+    "assignees": [
+      "pedrosarmientot"
+    ],
+    "title": "DevOps Sprint 1: despliegue, logs, manejo de errores, configuración de cuentas IA rotativas y respaldo básico"
+  },
+  {
+    "id": "AT-14",
+    "sprint": 1,
+    "owner": "Laura",
+    "assignees": [
+      "whoislaura"
+    ],
+    "title": "Ingestión completa del corpus de muestra: PDF por página, metadatos, chunking, embeddings e indexación"
+  },
+  {
+    "id": "AT-15",
+    "sprint": 1,
+    "owner": "Laura",
+    "assignees": [
+      "whoislaura"
+    ],
+    "title": "Recuperación y generación CU-01: búsqueda de fragmentos, respuesta en español restringida al corpus y citado"
+  },
+  {
+    "id": "AT-16",
+    "sprint": 1,
+    "owner": "Laura",
+    "assignees": [
+      "whoislaura"
+    ],
+    "title": "Verificador de citas CU-05: mapear chunk a documento/página y validar que la cita exista"
+  },
+  {
+    "id": "AT-17",
+    "sprint": 1,
+    "owner": "Laura",
+    "assignees": [
+      "whoislaura"
+    ],
+    "title": "Generadores CU-02: resumen textual, esquema jerárquico, cuadro comparativo y diagrama simple en texto, siempre con fuentes"
+  },
+  {
+    "id": "AT-18",
+    "sprint": 1,
+    "owner": "Laura",
+    "assignees": [
+      "whoislaura"
+    ],
+    "title": "Reindexación al subir, actualizar o retirar material"
+  },
+  {
+    "id": "AT-19",
+    "sprint": 1,
+    "owner": "Laura",
+    "assignees": [
+      "whoislaura"
+    ],
+    "title": "QA RAG Sprint 1: pruebas de alucinación, preguntas fuera del corpus y ajuste de prompts"
+  },
+  {
+    "id": "AT-20",
+    "sprint": 1,
+    "owner": "Ray",
+    "assignees": [
+      "raysanjudo2006-netizen"
+    ],
+    "title": "UI login/roles CU-00"
+  },
+  {
+    "id": "AT-21",
+    "sprint": 1,
+    "owner": "Ray",
+    "assignees": [
+      "raysanjudo2006-netizen"
+    ],
+    "title": "UI consulta CU-01 + visor de fuentes/citas CU-05"
+  },
+  {
+    "id": "AT-22",
+    "sprint": 1,
+    "owner": "Ray",
+    "assignees": [
+      "raysanjudo2006-netizen"
+    ],
+    "title": "UI generación CU-02: selector de formato y render de resumen/esquema/cuadro/diagrama texto"
+  },
+  {
+    "id": "AT-23",
+    "sprint": 1,
+    "owner": "Ray",
+    "assignees": [
+      "raysanjudo2006-netizen"
+    ],
+    "title": "UI gestión de corpus CU-03 para Profesor/Administrador"
+  },
+  {
+    "id": "AT-24",
+    "sprint": 1,
+    "owner": "Ray",
+    "assignees": [
+      "raysanjudo2006-netizen"
+    ],
+    "title": "UI historial CU-04 visible para estudiantes y profesores"
+  },
+  {
+    "id": "AT-25",
+    "sprint": 1,
+    "owner": "Ray",
+    "assignees": [
+      "raysanjudo2006-netizen"
+    ],
+    "title": "Integración Sprint 1: estados de carga/error/vacío y pruebas de flujo completo"
+  },
+  {
+    "id": "AT-26",
+    "sprint": 1,
+    "owner": "Todos",
+    "assignees": [
+      "whoislaura",
+      "pedrosarmientot",
+      "raysanjudo2006-netizen"
+    ],
+    "title": "Revisión funcional de Sprint 1 con el cliente"
+  },
+  {
+    "id": "AT-27",
+    "sprint": 2,
+    "owner": "Pedro",
+    "assignees": [
+      "pedrosarmientot"
+    ],
+    "title": "API de exámenes CU-06: configuración asignatura/tema/cantidad/dificultad, generación y consulta de respuestas"
+  },
+  {
+    "id": "AT-28",
+    "sprint": 2,
+    "owner": "Pedro",
+    "assignees": [
+      "pedrosarmientot"
+    ],
+    "title": "API de feedback CU-10: registrar valoración, error reportado y sugerencia"
+  },
+  {
+    "id": "AT-29",
+    "sprint": 2,
+    "owner": "Pedro",
+    "assignees": [
+      "pedrosarmientot"
+    ],
+    "title": "Ajustes de backend derivados de Sprint 1 y feedback; seguridad, validaciones y rendimiento básico"
+  },
+  {
+    "id": "AT-30",
+    "sprint": 2,
+    "owner": "Pedro",
+    "assignees": [
+      "pedrosarmientot"
+    ],
+    "title": "Despliegue final, repositorio del cliente y configuración de entrega"
+  },
+  {
+    "id": "AT-31",
+    "sprint": 2,
+    "owner": "Laura",
+    "assignees": [
+      "whoislaura"
+    ],
+    "title": "Lógica de generación de exámenes CU-06: preguntas por dificultad desde corpus, respuestas y fuentes"
+  },
+  {
+    "id": "AT-32",
+    "sprint": 2,
+    "owner": "Laura",
+    "assignees": [
+      "whoislaura"
+    ],
+    "title": "Ajustes RAG por feedback: recuperación, citas y prompts; pruebas de regresión"
+  },
+  {
+    "id": "AT-33",
+    "sprint": 2,
+    "owner": "Laura",
+    "assignees": [
+      "whoislaura"
+    ],
+    "title": "QA final RAG: calidad de exámenes, citas completas, alucinaciones y carga básica"
+  },
+  {
+    "id": "AT-34",
+    "sprint": 2,
+    "owner": "Laura",
+    "assignees": [
+      "whoislaura"
+    ],
+    "title": "Apoyo backend a exámenes, feedback y correcciones finales"
+  },
+  {
+    "id": "AT-35",
+    "sprint": 2,
+    "owner": "Ray",
+    "assignees": [
+      "raysanjudo2006-netizen"
+    ],
+    "title": "UI exámenes CU-06: selección de asignatura/tema/cantidad/dificultad, examen y consulta de respuestas"
+  },
+  {
+    "id": "AT-36",
+    "sprint": 2,
+    "owner": "Ray",
+    "assignees": [
+      "raysanjudo2006-netizen"
+    ],
+    "title": "UI feedback CU-10: reportar error, valorar respuesta y sugerir mejora"
+  },
+  {
+    "id": "AT-37",
+    "sprint": 2,
+    "owner": "Ray",
+    "assignees": [
+      "raysanjudo2006-netizen"
+    ],
+    "title": "Ajustes finales de UI, compatibilidad de navegador y accesibilidad básica"
+  },
+  {
+    "id": "AT-38",
+    "sprint": 2,
+    "owner": "Todos",
+    "assignees": [
+      "whoislaura",
+      "pedrosarmientot",
+      "raysanjudo2006-netizen"
+    ],
+    "title": "Integración final y preparación de demo de cierre"
+  }
+]

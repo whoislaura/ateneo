@@ -1,0 +1,42 @@
+# Issues de GitHub
+
+| Tarea | Issue | Responsable |
+|---|---|---|
+| AT-01 | [1](https://github.com/whoislaura/ateneo/issues/1) | Laura |
+| AT-02 | [2](https://github.com/whoislaura/ateneo/issues/2) | Pedro |
+| AT-03 | [3](https://github.com/whoislaura/ateneo/issues/3) | Laura |
+| AT-04 | [4](https://github.com/whoislaura/ateneo/issues/4) | Laura |
+| AT-05 | [5](https://github.com/whoislaura/ateneo/issues/5) | Ray |
+| AT-06 | [6](https://github.com/whoislaura/ateneo/issues/6) | Todos |
+| AT-07 | [7](https://github.com/whoislaura/ateneo/issues/7) | Todos |
+| AT-08 | [8](https://github.com/whoislaura/ateneo/issues/8) | Pedro |
+| AT-09 | [9](https://github.com/whoislaura/ateneo/issues/9) | Pedro |
+| AT-10 | [10](https://github.com/whoislaura/ateneo/issues/10) | Pedro |
+| AT-11 | [11](https://github.com/whoislaura/ateneo/issues/11) | Pedro |
+| AT-12 | [12](https://github.com/whoislaura/ateneo/issues/12) | Pedro |
+| AT-13 | [13](https://github.com/whoislaura/ateneo/issues/13) | Pedro |
+| AT-14 | [14](https://github.com/whoislaura/ateneo/issues/14) | Laura |
+| AT-15 | [15](https://github.com/whoislaura/ateneo/issues/15) | Laura |
+| AT-16 | [16](https://github.com/whoislaura/ateneo/issues/16) | Laura |
+| AT-17 | [17](https://github.com/whoislaura/ateneo/issues/17) | Laura |
+| AT-18 | [18](https://github.com/whoislaura/ateneo/issues/18) | Laura |
+| AT-19 | [19](https://github.com/whoislaura/ateneo/issues/19) | Laura |
+| AT-20 | [20](https://github.com/whoislaura/ateneo/issues/20) | Ray |
+| AT-21 | [21](https://github.com/whoislaura/ateneo/issues/21) | Ray |
+| AT-22 | [22](https://github.com/whoislaura/ateneo/issues/22) | Ray |
+| AT-23 | [23](https://github.com/whoislaura/ateneo/issues/23) | Ray |
+| AT-24 | [24](https://github.com/whoislaura/ateneo/issues/24) | Ray |
+| AT-25 | [25](https://github.com/whoislaura/ateneo/issues/25) | Ray |
+| AT-26 | [26](https://github.com/whoislaura/ateneo/issues/26) | Todos |
+| AT-27 | [27](https://github.com/whoislaura/ateneo/issues/27) | Pedro |
+| AT-28 | [28](https://github.com/whoislaura/ateneo/issues/28) | Pedro |
+| AT-29 | [29](https://github.com/whoislaura/ateneo/issues/29) | Pedro |
+| AT-30 | [30](https://github.com/whoislaura/ateneo/issues/30) | Pedro |
+| AT-31 | [31](https://github.com/whoislaura/ateneo/issues/31) | Laura |
+| AT-32 | [32](https://github.com/whoislaura/ateneo/issues/32) | Laura |
+| AT-33 | [33](https://github.com/whoislaura/ateneo/issues/33) | Laura |
+| AT-34 | [34](https://github.com/whoislaura/ateneo/issues/34) | Laura |
+| AT-35 | [35](https://github.com/whoislaura/ateneo/issues/35) | Ray |
+| AT-36 | [36](https://github.com/whoislaura/ateneo/issues/36) | Ray |
+| AT-37 | [37](https://github.com/whoislaura/ateneo/issues/37) | Ray |
+| AT-38 | [38](https://github.com/whoislaura/ateneo/issues/38) | Todos |
