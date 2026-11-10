@@ -60,6 +60,10 @@ python infra/smoke.py
 
 CI ejecuta estas comprobaciones y construye los contenedores. Los checks requeridos se llaman `Backend`, `Frontend` y `Containers and smoke`.
 
+## Ingestión de muestra (Sprint 0)
+
+Disponible el recorrido PDF → páginas → fragmentos → búsqueda textual local. La [guía de ingestión](docs/ingestion.md) incluye comandos PowerShell, metadatos, ejemplo reproducible y límites. Los archivos de muestra son ficticios y no requieren claves IA ni Docker.
+
 ## Organización
 
 - `backend/`: FastAPI; Pedro dirige API/modelo y Laura `app/rag/`.

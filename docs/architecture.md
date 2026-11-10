@@ -14,7 +14,7 @@ FastAPI genera OpenAPI en `/openapi.json` y documentación en `/docs` cuando se 
 
 ## Contratos pendientes de Pedro
 
-En Sprint 0, definir usuarios/roles, documentos, chunks, citas, historial, exámenes y feedback. Laura y Ray revisarán el contrato antes de implementar integraciones. No se fija aún proveedor IA, modelo de embeddings, dimensionado vectorial ni estrategia de chunking: pertenecen a las tareas de ingestión y RAG.
+En Sprint 0, definir usuarios/roles, documentos, chunks, citas, historial, exámenes y feedback. Laura y Ray revisarán el contrato antes de implementar integraciones. No se fija aún proveedor IA, modelo de embeddings, dimensionado vectorial para producción. La estrategia inicial de chunking y su índice textual de muestra están descritos en [ingestión](ingestion.md); los embeddings y el RAG pertenecen a las siguientes tareas.
 
 ## Contenedores
 
