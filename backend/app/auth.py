@@ -1,7 +1,11 @@
 """CU-00: contraseñas, sesiones y permisos por rol.
 
-Alta de usuarios (no hay registro público), desde backend/ con DATABASE_URL definida:
+Mantenimiento de usuarios (no hay registro público), desde backend/ con DATABASE_URL definida:
     uv run python -m app.auth create-user admin@upr.edu.cu --name "Nombre" --role admin
+    uv run python -m app.auth set-password admin@upr.edu.cu
+    uv run python -m app.auth set-role admin@upr.edu.cu --role teacher
+    uv run python -m app.auth deactivate|activate admin@upr.edu.cu
+    uv run python -m app.auth list-users
 """
 
 import argparse
@@ -146,6 +150,21 @@ def create_user(db: Session, email: str, full_name: str, password: str, role: Ro
     return user
 
 
+def find_user(db: Session, email: str) -> User:
+    user = db.scalar(select(User).where(User.email == email.strip().lower()))
+    if user is None:
+        raise LookupError(f"No existe un usuario con el correo {email.strip().lower()}.")
+    return user
+
+
+def set_password(db: Session, user: User, password: str) -> None:
+    if len(password) < MIN_PASSWORD:
+        raise ValueError(f"La contraseña debe tener al menos {MIN_PASSWORD} caracteres.")
+    user.password_hash = hash_password(password)
+    db.execute(delete(AuthSession).where(AuthSession.user_id == user.id))
+    db.commit()
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="python -m app.auth")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -153,20 +172,64 @@ def main(argv: list[str] | None = None) -> None:
     create.add_argument("email")
     create.add_argument("--name", required=True)
     create.add_argument("--role", choices=[r.value for r in Role], required=True)
+    password = commands.add_parser(
+        "set-password", help="Cambia la contraseña y revoca las sesiones abiertas."
+    )
+    password.add_argument("email")
+    role = commands.add_parser("set-role", help="Cambia el rol de un usuario.")
+    role.add_argument("email")
+    role.add_argument("--role", choices=[r.value for r in Role], required=True)
+    for name, help_text in (
+        ("deactivate", "Desactiva el usuario y revoca sus sesiones."),
+        ("activate", "Reactiva el usuario."),
+    ):
+        command = commands.add_parser(name, help=help_text)
+        command.add_argument("email")
+    commands.add_parser("list-users", help="Lista usuarios, rol y estado.")
     args = parser.parse_args(argv)
 
-    # La contraseña nunca va en argumentos: quedaría en el historial del shell.
-    password = getpass.getpass("Contraseña: ")
-    if password != getpass.getpass("Repetir contraseña: "):
-        parser.exit(1, "Las contraseñas no coinciden.\n")
     try:
         with session_factory()() as db:
-            user = create_user(db, args.email, args.name, password, Role(args.role))
-            print(f"Usuario {user.id} creado: {user.email} ({user.role.value}).")
-    except ValueError as error:
+            if args.command == "list-users":
+                for user in db.scalars(select(User).order_by(User.id)):
+                    estado = "activo" if user.is_active else "inactivo"
+                    print(f"{user.id}\t{user.email}\t{user.role.value}\t{estado}")
+                return
+            if args.command == "create-user":
+                # La contraseña nunca va en argumentos: quedaría en el historial del shell.
+                user = create_user(
+                    db, args.email, args.name, _ask_password(parser), Role(args.role)
+                )
+                print(f"Usuario {user.id} creado: {user.email} ({user.role.value}).")
+                return
+            user = find_user(db, args.email)
+            if args.command == "set-password":
+                set_password(db, user, _ask_password(parser))
+                print(f"Contraseña actualizada: {user.email}.")
+            elif args.command == "set-role":
+                user.role = Role(args.role)
+                db.commit()
+                print(f"Rol actualizado: {user.email} ({user.role.value}).")
+            elif args.command == "deactivate":
+                user.is_active = False
+                db.execute(delete(AuthSession).where(AuthSession.user_id == user.id))
+                db.commit()
+                print(f"Usuario desactivado: {user.email}.")
+            else:
+                user.is_active = True
+                db.commit()
+                print(f"Usuario reactivado: {user.email}.")
+    except (ValueError, LookupError) as error:
         parser.exit(1, f"{error}\n")
     except IntegrityError:
         parser.exit(1, "Ya existe un usuario con ese correo.\n")
+
+
+def _ask_password(parser: argparse.ArgumentParser) -> str:
+    password = getpass.getpass("Contraseña: ")
+    if password != getpass.getpass("Repetir contraseña: "):
+        parser.exit(1, "Las contraseñas no coinciden.\n")
+    return password
 
 
 if __name__ == "__main__":

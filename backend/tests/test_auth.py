@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, update
+from sqlalchemy import create_engine, select, update
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -182,3 +182,35 @@ def test_create_user_cli(db_factory, monkeypatch, capsys):
     monkeypatch.setattr(auth.getpass, "getpass", lambda prompt: "corta")
     with pytest.raises(SystemExit):
         auth.main(["create-user", "x@ateneo.cu", "--name", "X", "--role", "student"])
+
+
+def test_user_management_cli(db_factory, monkeypatch, capsys):
+    monkeypatch.setattr(auth, "session_factory", lambda: db_factory)
+    monkeypatch.setattr(auth.getpass, "getpass", lambda prompt: "nueva-clave")
+    with db_factory() as db:
+        token = auth.create_session(db, auth.find_user(db, "student@ateneo.cu"))
+        assert token and db.scalars(select(AuthSession)).all()
+
+    auth.main(["set-password", "student@ateneo.cu"])
+    with db_factory() as db:
+        assert auth.authenticate(db, "student@ateneo.cu", "nueva-clave").role == Role.STUDENT
+        assert db.scalars(select(AuthSession)).all() == [], "las sesiones deben revocarse"
+
+    auth.main(["set-role", "student@ateneo.cu", "--role", "teacher"])
+    with db_factory() as db:
+        assert auth.find_user(db, "student@ateneo.cu").role == Role.TEACHER
+
+    auth.main(["deactivate", "student@ateneo.cu"])
+    with db_factory() as db:
+        assert auth.authenticate(db, "student@ateneo.cu", "nueva-clave") is None
+
+    auth.main(["activate", "student@ateneo.cu"])
+    with db_factory() as db:
+        assert auth.authenticate(db, "student@ateneo.cu", "nueva-clave").role == Role.TEACHER
+
+    auth.main(["list-users"])
+    output = capsys.readouterr().out
+    assert "student@ateneo.cu" in output and "teacher" in output
+
+    with pytest.raises(SystemExit):
+        auth.main(["set-role", "nadie@ateneo.cu", "--role", "admin"])

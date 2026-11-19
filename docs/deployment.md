@@ -52,6 +52,15 @@ La imagen de la API ejecuta `alembic upgrade head` antes de arrancar uvicorn; si
 docker compose exec api python -m app.auth create-user admin@upr.edu.cu --name "Nombre Apellido" --role admin
 ```
 
+Para cambiar contraseña, rol o dar de baja una cuenta, y para listarlas:
+
+```sh
+docker compose exec api python -m app.auth set-password usuario@upr.edu.cu
+docker compose exec api python -m app.auth set-role usuario@upr.edu.cu --role teacher
+docker compose exec api python -m app.auth deactivate usuario@upr.edu.cu
+docker compose exec api python -m app.auth list-users
+```
+
 En servidores, añadir `-f compose.yaml -f compose.prod.yaml` con `IMAGE_TAG` (ver arriba). `python infra/smoke.py` comprueba web, salud, un login fallido que devuelve 401 JSON (base accesible y migrada) y pgvector.
 
 ### Logs
