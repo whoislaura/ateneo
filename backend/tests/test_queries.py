@@ -258,8 +258,15 @@ def test_rag_failure_is_503_and_persists_nothing(client, factory, monkeypatch):
         assert db.scalar(select(func.count()).select_from(Answer)) == 0
 
 
-def test_invalid_rag_citations_become_no_evidence_before_persisting(client, factory, monkeypatch):
-    bad = {"status": "answered", "answer": "Inventado [1].", "citations": [cite(quote="otra")]}
+@pytest.mark.parametrize("invalid_marker", [2, 9])
+def test_invalid_rag_citations_become_no_evidence_before_persisting(
+    client, factory, monkeypatch, invalid_marker
+):
+    bad = {
+        "status": "answered",
+        "answer": f"Bien [1]. Inventado [{invalid_marker}].",
+        "citations": [cite(), cite(quote="otra")],
+    }
     monkeypatch.setattr(query, "ask", lambda db, question, **filters: bad)
     body = ask(client, question="¿Qué?").json()
     assert (body["status"], body["content"], body["citations"]) == (
@@ -309,7 +316,7 @@ def test_validate_renumbers_and_drops_unreferenced(factory):
     second = TEXT.index("El")
     result = {
         "status": "answered",
-        "answer": "Falso [1]. Bien [3]. Otra vez [3] y [9].",
+        "answer": "Bien [3]. Otra vez [3].",
         "citations": [
             cite(quote="x"),
             cite(start=second, end=len(TEXT), quote=TEXT[second:]),  # sin marca
@@ -318,7 +325,7 @@ def test_validate_renumbers_and_drops_unreferenced(factory):
     }
     with factory() as db:
         status, content, valid = citations.validate(db, result)
-        assert (status, content) == ("answered", "Falso. Bien [1]. Otra vez [1] y.")
+        assert (status, content) == ("answered", "Bien [1]. Otra vez [1].")
         [citation] = valid
         assert (citation.position, citation.chunk_id, citation.document_title) == (
             1,

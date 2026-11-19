@@ -305,6 +305,26 @@ def test_exam_at_contract_limit_has_unique_questions(client, factory, pdfs):
     assert len(get(client, f"/exams/{exam['id']}/answers", Role.STUDENT).json()) == 50
 
 
+def test_concurrent_upload_cannot_overwrite_committed_document(client, factory, pdfs, monkeypatch):
+    def embed_after_competing_upload(texts):
+        # La primera petición ya consultó el ID. La segunda guarda antes de que la primera escriba.
+        monkeypatch.setitem(vector.EMBEDDERS, "fake", vector.fake_embedder)
+        winner = upload(client, pdfs["muestra-a"], Role.ADMIN, title="Primer documento guardado")
+        assert winner.status_code == 201, winner.json()
+        return vector.fake_embedder(texts)
+
+    monkeypatch.setitem(vector.EMBEDDERS, "fake", embed_after_competing_upload)
+    conflict = upload(client, pdfs["muestra-b"])
+    assert conflict.status_code == 409, conflict.json()
+    assert get(client, "/documents/manual").json()["title"] == "Primer documento guardado"
+    page = get(client, "/documents/manual/pages/1").json()
+    assert "azafrán" in page["text"]
+    with factory() as db:
+        [entry] = db.scalars(select(HistoryEntry)).all()
+        assert entry.summary == "Primer documento guardado"
+        assert db.get(Document, "manual").uploaded_by == entry.user_id
+
+
 def test_replace_reindexes_and_keeps_old_citations_as_copies(client, factory, pdfs):
     old_version = upload(client, pdfs["muestra-a"]).json()["version"]
     old = ask(client, OLD_QUESTION).json()

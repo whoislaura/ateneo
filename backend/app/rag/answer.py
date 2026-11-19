@@ -175,7 +175,7 @@ def cite_reply(
 ) -> dict:
     """Resuelve las marcas [Fn] de `reply` en citas verificadas y las renumera [n] (CU-01, CU-02).
 
-    Devuelve `invalid_citations` y, si queda alguna cita válida, `status`, `answer` y `citations`.
+    Devuelve `invalid_citations` y solo devuelve la respuesta si todas sus citas son válidas.
     """
     candidates, invalid = {}, []
     for match in MARKER.finditer(reply):
@@ -188,21 +188,19 @@ def cite_reply(
     unique = {(c["chunk_id"], c["start"], c["end"]): c for c in candidates.values()}
     load_sources = sqlite_sources if isinstance(source, Path) else db_sources
     sources = load_sources(source, (c["chunk_id"] for c in unique.values()))
-    valid, rejected = verify_citations(list(unique.values()), sources)
-    valid_keys = {(c["chunk_id"], c["start"], c["end"]) for c in valid}
+    _, rejected = verify_citations(list(unique.values()), sources)
+    result = {"invalid_citations": invalid + rejected}
+    if result["invalid_citations"] or not candidates or NOT_FOUND.casefold() in reply.casefold():
+        return result
+
     positions: dict[tuple, int] = {}
 
     def renumber(match: re.Match) -> str:
-        citation = candidates.get(match.start())
-        key = citation and (citation["chunk_id"], citation["start"], citation["end"])
-        if key not in valid_keys:
-            return ""
+        citation = candidates[match.start()]
+        key = citation["chunk_id"], citation["start"], citation["end"]
         return f"[{positions.setdefault(key, len(positions) + 1)}]"
 
     content = re.sub(r"[ \t]+([.,;:])", r"\1", MARKER.sub(renumber, reply)).strip()
-    result = {"invalid_citations": invalid + rejected}
-    if not positions or NOT_FOUND.casefold() in content.casefold():
-        return result
     return result | {
         "status": "answered",
         "answer": content,

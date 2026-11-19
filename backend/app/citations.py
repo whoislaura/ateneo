@@ -49,26 +49,28 @@ def verified(db: Session, item: dict) -> Citation | None:
 def validate(db: Session, result: dict) -> tuple[AnswerStatus, str, list[Citation]]:
     """Aplica el contrato CU-05 a un resultado RAG (forma en `app.query.ask`).
 
-    Se descartan las citas no verificables y las que ninguna marca `[n]` del texto referencia;
-    las marcas restantes se renumeran 1..k. Sin citas válidas: `no_evidence` sin afirmaciones.
+    Toda marca `[n]` debe referenciar una cita verificable. Las citas utilizadas
+    se renumeran 1..k. Si falta evidencia, se devuelve `no_evidence` sin afirmaciones.
     """
     if result.get("status") == AnswerStatus.ANSWERED:
+        content = result.get("answer") or ""
+        referenced = {int(number) for number in MARK.findall(content)}
         candidates = {
             n: citation
             for n, item in enumerate(result.get("citations") or [], 1)
             if (citation := verified(db, item))
         }
+        if not referenced or not referenced <= candidates.keys():
+            return AnswerStatus.NO_EVIDENCE, NO_EVIDENCE, []
+
         positions: dict[int, int] = {}
 
         def renumber(match: re.Match) -> str:
             n = int(match.group(1))
-            if n not in candidates:
-                return ""
             return f" [{positions.setdefault(n, len(positions) + 1)}]"
 
-        content = MARK.sub(renumber, result.get("answer") or "").strip()
-        if positions:
-            for n, position in positions.items():
-                candidates[n].position = position
-            return AnswerStatus.ANSWERED, content, [candidates[n] for n in positions]
+        content = MARK.sub(renumber, content).strip()
+        for n, position in positions.items():
+            candidates[n].position = position
+        return AnswerStatus.ANSWERED, content, [candidates[n] for n in positions]
     return AnswerStatus.NO_EVIDENCE, NO_EVIDENCE, []
