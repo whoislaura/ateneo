@@ -189,7 +189,7 @@ def create_generation(
             status.HTTP_503_SERVICE_UNAVAILABLE, "El servicio de generación no está disponible."
         ) from exc
     answer_status, content, valid = citations.validate(db, result)
-    # Si la validación quita marcas, un elemento puede quedar sin fuente: se rechaza entero.
+    # La salida final debe conservar la estructura pedida tras renumerar las citas.
     if answer_status == AnswerStatus.ANSWERED and not generation.well_formed(body.format, content):
         answer_status, content, valid = AnswerStatus.NO_EVIDENCE, citations.NO_EVIDENCE, []
     answer = Answer(
