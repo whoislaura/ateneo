@@ -7,14 +7,6 @@ export interface Asignatura {
   temas: string[]
 }
 
-
-export interface HistoryEntry {
-  id: string
-  fecha: string
-  accion: 'consulta' | 'generación' | 'examen'
-  resumen: string
-}
-
 export interface ExamQuestion {
   id: string
   enunciado: string
@@ -43,13 +35,6 @@ function cita(position: number, page: number, quote: string): Citation {
 const sampleCitations: Citation[] = [
   cita(1, 12, 'Son fuentes del derecho la costumbre, la ley, el plebiscito, el senadoconsulto, el edicto y la respuesta de los prudentes…'),
   cita(2, 15, 'Durante el Principado, la voluntad del príncipe expresada en constituciones adquiere fuerza de ley…'),
-]
-
-
-export const history: HistoryEntry[] = [
-  { id: 'h-1', fecha: '2026-11-18 10:42', accion: 'consulta', resumen: '¿Cuáles son las fuentes del Derecho Romano?' },
-  { id: 'h-2', fecha: '2026-11-18 11:05', accion: 'generación', resumen: 'Esquema: Fuentes del Derecho Romano' },
-  { id: 'h-3', fecha: '2026-11-17 16:20', accion: 'examen', resumen: 'Derecho Romano · 2 preguntas · 1/2 correctas' },
 ]
 
 export const exam: ExamQuestion[] = [
