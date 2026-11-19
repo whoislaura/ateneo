@@ -7,8 +7,6 @@ export interface Asignatura {
   temas: string[]
 }
 
-export type GenerationType = 'resumen' | 'esquema' | 'cuadro' | 'diagrama'
-
 export interface CorpusDocument {
   id: string
   titulo: string
@@ -51,17 +49,10 @@ function cita(position: number, page: number, quote: string): Citation {
   }
 }
 
-export const sampleCitations: Citation[] = [
+const sampleCitations: Citation[] = [
   cita(1, 12, 'Son fuentes del derecho la costumbre, la ley, el plebiscito, el senadoconsulto, el edicto y la respuesta de los prudentes…'),
   cita(2, 15, 'Durante el Principado, la voluntad del príncipe expresada en constituciones adquiere fuerza de ley…'),
 ]
-
-export const sampleGenerations: Record<GenerationType, string> = {
-  resumen: 'Las fuentes del Derecho Romano evolucionan de la costumbre a la ley escrita y, más tarde, a las constituciones imperiales.',
-  esquema: '1. Fuentes\n   1.1 Costumbre\n   1.2 Leyes y plebiscitos\n   1.3 Senadoconsultos\n   1.4 Edictos\n   1.5 Jurisprudencia\n2. Constituciones imperiales',
-  cuadro: 'Fuente            | Órgano             | Época\n------------------|--------------------|-----------\nLey               | Comicios           | República\nSenadoconsulto    | Senado             | República\nConstitución      | Emperador          | Principado',
-  diagrama: 'Costumbre → Ley escrita → Edictos → Constituciones imperiales',
-}
 
 export const corpus: CorpusDocument[] = [
   { id: 'doc-1', titulo: manual, anio: 1, asignatura: 'Derecho Romano', tema: 'Fuentes del Derecho Romano', paginas: 42, estado: 'procesado' },

@@ -164,11 +164,24 @@ def answer_question(
         return result
     # Las marcas [n] del contrato solo las pone el backend.
     reply = re.sub(r"\[\d+\]", "", provider(SYSTEM_PROMPT, build_prompt(question, passages)))
+    return result | cite_reply(source, passages, reply)
+
+
+def cite_reply(
+    source: Path | Session,
+    passages: list[dict],
+    reply: str,
+    claim: Callable[[str, int], str] = claim_before,
+) -> dict:
+    """Resuelve las marcas [Fn] de `reply` en citas verificadas y las renumera [n] (CU-01, CU-02).
+
+    Devuelve `invalid_citations` y, si queda alguna cita válida, `status`, `answer` y `citations`.
+    """
     candidates, invalid = {}, []
     for match in MARKER.finditer(reply):
         number = int(match.group(1))
         if 1 <= number <= len(passages):
-            citation = quote_citation(passages[number - 1], claim_before(reply, match.start()))
+            citation = quote_citation(passages[number - 1], claim(reply, match.start()))
             candidates[match.start()] = citation
         else:
             invalid.append({"marker": match.group(0), "reason": "Fragmento no recuperado."})
@@ -187,7 +200,7 @@ def answer_question(
         return f"[{positions.setdefault(key, len(positions) + 1)}]"
 
     content = re.sub(r"[ \t]+([.,;:])", r"\1", MARKER.sub(renumber, reply)).strip()
-    result["invalid_citations"] = invalid + rejected
+    result = {"invalid_citations": invalid + rejected}
     if not positions or NOT_FOUND.casefold() in content.casefold():
         return result
     return result | {

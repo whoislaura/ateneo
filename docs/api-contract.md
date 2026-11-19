@@ -70,7 +70,7 @@ Cada usuario tiene un único rol. Sin sesión válida: 401. Sin permiso: 403. Re
 
 La subida usa los campos de formulario `document_id`, `title`, `year`, `subject`, `topic` y `file`; la actualización, los mismos sin `document_id`. `IngestionReport` tiene la forma que ya devuelve `app.rag.index.index_document`: `status` es `indexed` o `partial` y `no_text_pages` lista las páginas sin texto extraíble.
 
-`POST /generations` recibe `format` (`summary`, `outline`, `table`, `diagram`) y `prompt`; el contenido se devuelve como texto en `content`. `POST /exams` recibe año, asignatura, tema opcional, `question_count` (1–50) y `difficulty` (`easy`, `medium`, `hard`). `POST /feedback` recibe `kind`: `rating` exige `rating` de 1 a 5; `error` y `suggestion` exigen `comment`. `answer_id` y `exam_id` vinculan opcionalmente el feedback.
+`POST /generations` recibe `format` (`summary`, `outline`, `table`, `diagram`) y `prompt`; el contenido se devuelve como texto estructurado en `content` (ver [Generación](#generación-cu-02-at-17)). `POST /exams` recibe año, asignatura, tema opcional, `question_count` (1–50) y `difficulty` (`easy`, `medium`, `hard`). `POST /feedback` recibe `kind`: `rating` exige `rating` de 1 a 5; `error` y `suggestion` exigen `comment`. `answer_id` y `exam_id` vinculan opcionalmente el feedback.
 
 ## Contrato de citas (CU-05)
 
@@ -108,9 +108,42 @@ Una cita es válida si `quote == texto_de_página[start:end]`, para la página f
 
 La cita se guarda como copia: documento, título, versión, página y texto citado. Así el historial conserva referencias comprobables aunque el documento se reindexe o retire; `chunk_id` pasa a nulo cuando su fragmento deja de existir.
 
+### Generación (CU-02, AT-17)
+
+`POST /generations` recibe `format`, `prompt` (tema o pregunta, 1–1000 caracteres) y los mismos filtros opcionales que la consulta. Sigue el flujo de CU-01: recuperación, generación restringida al corpus con marcas por fragmento, cita exacta por oración, validación (abajo) y, en una sola transacción, la respuesta (`answers.kind` = `format`), sus citas y una entrada de historial `generation` con `prompt` como resumen. Se reabre con `GET /answers/{answer_id}`; un fallo del proveedor devuelve 503 sin guardar nada. El RAG se invoca solo a través de `app.generation.generate`, con la misma forma de resultado que `app.query.ask`.
+
+`content` es texto por líneas (se ignoran las vacías) con marcas `[n]`; `kind` indica la estructura:
+
+| `format` | Estructura de `content` | Cada elemento con marca |
+|---|---|---|
+| `summary` | Uno o varios párrafos, uno por línea. | Cada párrafo. |
+| `outline` | Una línea por elemento: `- texto`, con dos espacios de sangría por nivel; el primero en nivel 0 y cada nivel como mucho uno más que el anterior. | Cada hoja; un elemento con hijos puede no llevarla. |
+| `table` | Tabla Markdown: encabezados, separadora (`---`, admite `:`) y al menos una fila de datos, todas entre `\|` y con el mismo número de columnas (≥ 2). La primera columna nombra el aspecto comparado; las celdas no contienen `\|`. | Cada fila de datos. |
+| `diagram` | Una relación por línea: `Origen -> Destino` o `Origen -> Destino: relación`. | Cada relación. |
+
+```text
+- Fuentes del Derecho Romano
+  - La costumbre es fuente del derecho. [1]
+  - El senadoconsulto lo dicta el Senado. [2]
+```
+
+```text
+| Fuente | Órgano | Época |
+|---|---|---|
+| Ley | Comicios [1] | República [1] |
+| Senadoconsulto | Senado [2] | República [2] |
+```
+
+```text
+Costumbre -> Ley escrita: se codifica [1]
+Ley escrita -> Edictos [2]
+```
+
+La estructura se comprueba dos veces (`app.rag.generate.well_formed`): sobre la salida del modelo y otra vez tras `app.citations.validate`, porque quitar una cita inválida puede dejar un elemento sin fuente. Si no se cumple, la generación entera pasa a `no_evidence` con `content` = `No encontrado en el corpus.`; no se devuelve material parcial ni sin fuentes.
+
 ### Validación de citas (AT-12)
 
-`app.citations.validate` se aplica a todo resultado de CU-01 (y servirá para CU-02) antes de guardarlo o devolverlo:
+`app.citations.validate` se aplica a todo resultado de CU-01 y CU-02 antes de guardarlo o devolverlo:
 
 1. Una cita se descarta si su documento no existe, está retirado o su versión no es la vigente; si la página no existe; si `start`/`end` no son enteros con `0 <= start < end`; o si `quote` está vacía o difiere de `pages.text[start:end]`.
 2. Título del documento y etiqueta de página se copian de la base, no del modelo. `chunk_id` pasa a nulo si el fragmento no existe en ese documento y página.
@@ -154,7 +187,7 @@ uv run --frozen alembic upgrade head
 
 `backend/tests/test_auth.py` prueba login, sesión, logout, expiración, credenciales erróneas sin enumeración, la matriz de roles y el comando de alta con usuarios y sesiones en SQLite en memoria (`dependency_overrides`), sin PostgreSQL.
 
-`backend/tests/test_queries.py` prueba CU-01 y la validación de citas en SQLite en memoria, sustituyendo solo la recuperación pgvector por una falsa; con `ATENEO_TEST_DATABASE_URL` además recorre la consulta completa con la muestra indexada en PostgreSQL.
+`backend/tests/test_queries.py` prueba CU-01 y la validación de citas en SQLite en memoria, sustituyendo solo la recuperación pgvector por una falsa; `backend/tests/test_generations.py` hace lo mismo con CU-02 (los cuatro formatos, estructura inválida, roles, 503) y casos dorados de los generadores sobre la muestra; con `ATENEO_TEST_DATABASE_URL` además recorre la consulta completa con la muestra indexada en PostgreSQL.
 
 ## Pendiente
 

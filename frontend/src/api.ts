@@ -126,3 +126,26 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
   throw new ApiError(response.status, code, message)
 }
+
+/** Mensaje para el usuario según el error de `api()` (compartido por las pantallas). */
+export function errorMessage(err: unknown): string {
+  if (!(err instanceof ApiError)) return 'No se pudo conectar con el servidor. Comprueba la conexión e inténtalo de nuevo.'
+  if (err.status === 401) return 'Tu sesión ha caducado.'
+  if (err.status === 403) return 'Tu rol no tiene permiso para esta acción.'
+  if (err.status === 404) return 'El recurso solicitado no existe o ya no está disponible.'
+  if (err.status === 422) return 'Revisa los datos: hay campos no válidos.'
+  if (err.status === 501) return 'Esta función aún no está disponible en el servidor.'
+  return err.message
+}
+
+// CU-02 (AT-22): generación de material. La estructura de `content` por formato está en docs/api-contract.md.
+
+export type GenerationFormat = 'summary' | 'outline' | 'table' | 'diagram'
+
+export interface GenerationRequest {
+  format: GenerationFormat
+  prompt: string
+  year?: number
+  subject?: string
+  topic?: string
+}

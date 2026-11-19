@@ -8,7 +8,7 @@ from typing import Annotated, NoReturn
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app import citations, query
+from app import citations, generation, query
 from app.auth import (
     TOKEN_TTL,
     authenticate,
@@ -19,7 +19,7 @@ from app.auth import (
     revoke_session,
 )
 from app.db import get_db
-from app.models import Answer, AnswerKind, HistoryAction, HistoryEntry, Role, User
+from app.models import Answer, AnswerKind, AnswerStatus, HistoryAction, HistoryEntry, Role, User
 from app.schemas import (
     AnswerOut,
     CitationOut,
@@ -161,12 +161,48 @@ def create_query(
     "/generations",
     response_model=AnswerOut,
     status_code=201,
+    responses={503: {"model": ErrorResponse}},
     dependencies=STUDY,
     tags=["consulta"],
 )
-def create_generation(body: GenerationRequest):
-    """Estudiante, Profesor. Resumen, esquema, cuadro o diagrama en texto, con citas."""
-    not_implemented()
+def create_generation(
+    body: GenerationRequest,
+    user: Annotated[User, Depends(current_user)],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Estudiante, Profesor. Resumen, esquema, cuadro o diagrama en texto, con citas (CU-05)."""
+    filters = body.model_dump(exclude={"format", "prompt"})
+    try:
+        result = generation.generate(db, body.format, body.prompt, **filters)
+    except (ValueError, OSError) as exc:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "El servicio de generación no está disponible."
+        ) from exc
+    answer_status, content, valid = citations.validate(db, result)
+    # Si la validación quita marcas, un elemento puede quedar sin fuente: se rechaza entero.
+    if answer_status == AnswerStatus.ANSWERED and not generation.well_formed(body.format, content):
+        answer_status, content, valid = AnswerStatus.NO_EVIDENCE, citations.NO_EVIDENCE, []
+    answer = Answer(
+        user_id=user.id,
+        kind=AnswerKind(body.format),
+        status=answer_status,
+        question=body.prompt,
+        content=content,
+        citations=valid,
+        **filters,
+    )
+    db.add(answer)
+    db.flush()
+    db.add(
+        HistoryEntry(
+            user_id=user.id,
+            action=HistoryAction.GENERATION,
+            summary=body.prompt,
+            answer_id=answer.id,
+        )
+    )
+    db.commit()
+    return answer_out(answer)
 
 
 @router.get(

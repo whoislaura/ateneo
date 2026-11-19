@@ -1,6 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { Citations } from './consulta'
-import { asignaturas, corpus, exam, history, sampleCitations, sampleGenerations, type GenerationType } from './mock'
+import { asignaturas, corpus, exam, history } from './mock'
 
 const MOCK_NOTE = 'Pantalla de demostración: los resultados son ficticios.'
 
@@ -37,38 +36,6 @@ function SubjectFields() {
 function useSubmitted() {
   const [submitted, setSubmitted] = useState(false)
   return [submitted, (event: FormEvent) => { event.preventDefault(); setSubmitted(true) }] as const
-}
-
-export function Generacion() {
-  const [tipo, setTipo] = useState<GenerationType>('resumen')
-  const [selected, setSelected] = useState<number | null>(null)
-  const [submitted, submit] = useSubmitted()
-  return (
-    <>
-      <h1>Generación de material</h1>
-      <form onSubmit={submit}>
-        <SubjectFields />
-        <label>
-          Tipo
-          <select value={tipo} onChange={(e) => setTipo(e.target.value as GenerationType)}>
-            <option value="resumen">Resumen</option>
-            <option value="esquema">Esquema</option>
-            <option value="cuadro">Cuadro</option>
-            <option value="diagrama">Diagrama de texto</option>
-          </select>
-        </label>
-        <button type="submit">Generar</button>
-      </form>
-      {submitted && (
-        <section aria-labelledby="generado" className="result">
-          <h2 id="generado">Resultado</h2>
-          <p className="note">{MOCK_NOTE}</p>
-          <pre>{sampleGenerations[tipo]}</pre>
-          <Citations citas={sampleCitations} selected={selected} onSelect={setSelected} />
-        </section>
-      )}
-    </>
-  )
 }
 
 export function Corpus() {

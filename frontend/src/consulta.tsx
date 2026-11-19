@@ -1,16 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { api, ApiError, type Answer, type Citation, type Page, type QueryRequest } from './api'
+import { api, errorMessage, type Answer, type Citation, type Page, type QueryRequest } from './api'
 import { asignaturas } from './mock'
-
-function errorMessage(err: unknown): string {
-  if (!(err instanceof ApiError)) return 'No se pudo conectar con el servidor. Comprueba la conexión e inténtalo de nuevo.'
-  if (err.status === 401) return 'Tu sesión ha caducado.'
-  if (err.status === 403) return 'Tu rol no tiene permiso para esta acción.'
-  if (err.status === 404) return 'El recurso solicitado no existe o ya no está disponible.'
-  if (err.status === 422) return 'Revisa los datos: hay campos no válidos.'
-  if (err.status === 501) return 'Esta función aún no está disponible en el servidor.'
-  return err.message
-}
 
 const pageName = (cita: Citation) => `p. ${cita.page_label ?? cita.page_number}`
 
@@ -104,23 +94,22 @@ export function Consulta() {
   )
 }
 
-/** Muestra el contenido convirtiendo las marcas [n] en botones que abren la cita n. */
 function AnswerText({ answer, onSelect }: { answer: Answer; onSelect: (position: number) => void }) {
-  const parts = answer.content.split(/\[(\d+)\]/)
-  return (
-    <p className="answer">
-      {parts.map((part, i) => {
-        if (i % 2 === 0) return part
-        const cita = answer.citations.find((c) => c.position === Number(part))
-        if (!cita) return `[${part}]`
-        return (
-          <button key={i} type="button" className="link marker" aria-label={`Cita ${part}: ${cita.document_title}, ${pageName(cita)}`} onClick={() => onSelect(cita.position)}>
-            [{part}]
-          </button>
-        )
-      })}
-    </p>
-  )
+  return <p className="answer"><MarkedText text={answer.content} citas={answer.citations} onSelect={onSelect} /></p>
+}
+
+/** Muestra el texto convirtiendo las marcas [n] en botones que abren la cita n. */
+export function MarkedText({ text, citas, onSelect }: { text: string; citas: Citation[]; onSelect: (position: number) => void }) {
+  return text.split(/\[(\d+)\]/).map((part, i) => {
+    if (i % 2 === 0) return part
+    const cita = citas.find((c) => c.position === Number(part))
+    if (!cita) return `[${part}]`
+    return (
+      <button key={i} type="button" className="link marker" aria-label={`Cita ${part}: ${cita.document_title}, ${pageName(cita)}`} onClick={() => onSelect(cita.position)}>
+        [{part}]
+      </button>
+    )
+  })
 }
 
 export function Citations({ citas, selected, onSelect }: { citas: Citation[]; selected: number | null; onSelect: (position: number | null) => void }) {

@@ -1,13 +1,14 @@
 # Frontend (AT-05, AT-20, AT-21)
 
-React Router sin framework de UI ni librería de estado. Login, sesión y roles (CU-00) y la consulta con visor de citas (CU-01, CU-05) usan la API real según `docs/api-contract.md`. Generación, corpus, historial, examen y feedback siguen con datos ficticios de `frontend/src/mock.ts` hasta sus tareas de integración. El estado de conexión (`/api/v1/health`, `role="status"`) aparece en el pie de cada pantalla y en el login.
+React Router sin framework de UI ni librería de estado. Login, sesión y roles (CU-00), la consulta con visor de citas (CU-01, CU-05) y la generación de material (CU-02) usan la API real según `docs/api-contract.md`. Corpus, historial, examen y feedback siguen con datos ficticios de `frontend/src/mock.ts` hasta sus tareas de integración. El estado de conexión (`/api/v1/health`, `role="status"`) aparece en el pie de cada pantalla y en el login.
 
 ## Cliente de la API
 
-`frontend/src/api.ts` reúne los tipos de las respuestas usadas (`User`, `TokenResponse`, `QueryRequest`, `Answer`, `Citation`, `Page`), alineados con `backend/app/schemas.py`, y un único envoltorio `api()` sobre `fetch` que:
+`frontend/src/api.ts` reúne los tipos de las respuestas usadas (`User`, `TokenResponse`, `QueryRequest`, `GenerationRequest`, `Answer`, `Citation`, `Page`), alineados con `backend/app/schemas.py`, y un único envoltorio `api()` sobre `fetch` que:
 
 - añade `Authorization: Bearer <token>` si hay sesión y `Content-Type: application/json` si hay cuerpo;
 - convierte cualquier error en `ApiError` con `status`, `code` y `message` del formato `{"error": {...}}` (o un mensaje genérico si la respuesta no lo sigue);
+- `errorMessage()` traduce esos errores a mensajes para el usuario (compartido por las pantallas);
 - ante un 401 de una petición con token, descarta el token y avisa a `App`, que vuelve al login conservando la ruta pedida y muestra «Tu sesión ha caducado».
 
 En desarrollo Vite redirige `/api` a `http://127.0.0.1:8000`; en producción lo hace Nginx.
@@ -107,17 +108,26 @@ Fuentes
 
 El visor muestra la copia guardada de la cita y, a petición, carga `GET /documents/{id}/pages/{n}`. Si la versión vigente coincide con `document_version` y `text[start:end] == quote`, resalta el fragmento con `<mark>` y lo desplaza a la vista; si la versión cambió o el texto no coincide, lo avisa y muestra la página sin resaltar.
 
-### Generación (CU-02)
+### Generación (CU-02, AT-22)
 
 ```
 Generación de material
-Año [▾]  Asignatura [▾]  Tema [▾]
-Tipo [Resumen | Esquema | Cuadro | Diagrama de texto ▾]
+Formato ( ) Resumen ( ) Esquema ( ) Cuadro comparativo ( ) Diagrama de texto
+Año [Todos ▾]  Asignatura [____]  Tema [____]   (opcionales)
+Contenido a sintetizar [______________________]
 [Generar]
--- Resultado -------------------------------------------------
-| texto preformateado (esquema, cuadro o diagrama)           |
-Fuentes  [Documento, p. N] ...
+«Generando a partir del corpus…»     ← role="status" mientras carga
+-- Esquema (título del formato) ------------------------------
+  resumen:  párrafos con marcas [1]
+  esquema:  lista anidada <ul> con marcas
+  cuadro:   <table> con caption (el tema), <th scope="col"> y
+            <th scope="row"> en la primera columna
+  diagrama: Origen ──(relación)──▶ Destino   ← <pre aria-hidden>
+            Relaciones: 1. Origen → Destino: relación [1]  ← alternativa textual
+Fuentes  [1] Documento, p. N  → mismo visor de citas que Consulta
 ```
+
+`frontend/src/generacion.tsx` envía `POST /generations` con `format`, `prompt` y los filtros rellenados, y renderiza `content` según `kind` con la estructura del [contrato](api-contract.md#generación-cu-02-at-17). Estados y foco iguales que Consulta: vacío, cargando, error (`role="alert"`, 503 incluido) y `no_evidence` («Sin evidencia en el corpus», sin citas). Las marcas `[n]` de cualquier formato son botones que abren el visor de citas (`MarkedText` y `Citations` de `consulta.tsx`). En el diagrama, el dibujo es solo visual y la lista de relaciones (en el `figcaption`) es la alternativa para lectores de pantalla y contiene las marcas.
 
 ### Corpus (CU-03, Profesor/Administrador)
 
@@ -170,10 +180,10 @@ Landmarks `header`/`nav`/`main`/`footer`, enlace para saltar al contenido, campo
 
 ## Comprobación manual
 
-`npm run dev` con la API en `127.0.0.1:8000`. Sin base de datos el login devuelve 500 y la UI muestra el error genérico. Para recorrer los flujos sin backend completo basta un servidor de prueba que responda a `/auth/*`, `/queries` y `/documents/{id}/pages/{n}` con las formas del contrato.
+`npm run dev` con la API en `127.0.0.1:8000`. Sin base de datos el login devuelve 500 y la UI muestra el error genérico. Para recorrer los flujos sin backend completo basta un servidor de prueba que responda a `/auth/*`, `/queries`, `/generations` y `/documents/{id}/pages/{n}` con las formas del contrato.
 
 ## Pendiente
 
-- Integrar generación, corpus, historial, examen y feedback con la API y retirar sus datos de `mock.ts`.
+- Integrar corpus, historial, examen y feedback con la API y retirar sus datos de `mock.ts`.
 - Sugerencias de asignatura y tema a partir de `GET /documents` (AT-10) en lugar de `mock.ts`.
 - Validar wireframes con el cliente (AT-07).
