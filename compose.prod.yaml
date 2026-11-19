@@ -1,0 +1,9 @@
+# Servidores: usa imágenes publicadas en GHCR en lugar de construir.
+# Uso: IMAGE_TAG=<sha> docker compose -f compose.yaml -f compose.prod.yaml up -d --wait
+services:
+  api:
+    build: !reset null
+    image: ghcr.io/whoislaura/ateneo/api:${IMAGE_TAG:?Indica IMAGE_TAG con el commit desplegado}
+  web:
+    build: !reset null
+    image: ghcr.io/whoislaura/ateneo/web:${IMAGE_TAG:?Indica IMAGE_TAG con el commit desplegado}

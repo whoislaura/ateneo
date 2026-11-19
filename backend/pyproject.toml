@@ -4,8 +4,13 @@ version = "0.1.0"
 description = "API del asistente académico Ateneo"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "alembic>=1.16,<2",
     "fastapi>=0.115,<1",
+    "pgvector>=0.4,<1",
+    "psycopg[binary]>=3.2,<4",
     "pypdf>=7,<8",
+    "python-multipart>=0.0.20,<1",
+    "sqlalchemy>=2.0,<3",
     "uvicorn>=0.34,<1",
 ]
 
@@ -27,3 +32,7 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
+
+[tool.alembic]
+script_location = "%(here)s/migrations"
+prepend_sys_path = ["."]
