@@ -58,7 +58,7 @@ Con el stack Docker arrancado y Python disponible:
 python infra/smoke.py
 ```
 
-CI ejecuta estas comprobaciones y construye los contenedores. Los checks requeridos se llaman `Backend`, `Frontend` y `Containers and smoke`.
+CI ejecuta estas comprobaciones y construye los contenedores en cada PR hacia `staging` o `main`; los pushes a esas ramas despliegan según [despliegue](docs/deployment.md). Los checks requeridos se llaman `Backend`, `Frontend` y `Containers and smoke`.
 
 ## Ingestión de muestra (Sprint 0)
 
