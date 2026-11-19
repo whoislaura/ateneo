@@ -12,6 +12,7 @@ export function Examen() {
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
   const [listStatus, setListStatus] = useState('Cargando exámenes guardados…')
+  const [listError, setListError] = useState('')
 
   useEffect(() => {
     const controller = new AbortController()
@@ -20,10 +21,14 @@ export function Examen() {
         if (!controller.signal.aborted) {
           setExams((current) => [...current, ...rows.filter((row) => !current.some((item) => item.id === row.id))])
           setListStatus('')
+          setListError('')
         }
       })
       .catch((err: unknown) => {
-        if (!controller.signal.aborted) setListStatus(errorMessage(err))
+        if (!controller.signal.aborted) {
+          setListStatus('')
+          setListError(errorMessage(err))
+        }
       })
     return () => controller.abort()
   }, [])
@@ -108,7 +113,8 @@ export function Examen() {
       <section aria-labelledby="saved-exams">
         <h2 id="saved-exams">Exámenes guardados</h2>
         {listStatus && <p role="status">{listStatus}</p>}
-        {!listStatus && !exams.length && <p>Tu lista está vacía.</p>}
+        {listError && <p role="alert" className="status error">{listError}</p>}
+        {!listStatus && !listError && !exams.length && <p>Tu lista está vacía.</p>}
         {exams.length > 0 && (
           <ul>{exams.map((item) => (
             <li key={item.id}>

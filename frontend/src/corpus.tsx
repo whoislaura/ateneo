@@ -255,7 +255,12 @@ export function Corpus() {
           <button type="submit">Filtrar</button>
         </form>
 
-        {listError && <p className="status error" role="alert">{listError}</p>}
+        {listError && (
+          <>
+            <p className="status error" role="alert">{listError}</p>
+            <button type="button" onClick={() => { setDocs(null); setListError(''); setReload((n) => n + 1) }}>Reintentar</button>
+          </>
+        )}
         {docs === null && !listError && <p role="status" className="note">Cargando el corpus…</p>}
         {docs?.length === 0 && <p className="note">No hay material con estos filtros.</p>}
         {docs && docs.length > 0 && (
