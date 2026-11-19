@@ -79,7 +79,7 @@ Disponible el recorrido PDF → páginas → fragmentos → búsqueda textual lo
 - `infra/`: inicialización pgvector y smoke test; Laura en Sprint 0, Pedro desde Sprint 1.
 - `docs/`: alcance, tareas, arquitectura y despliegue.
 
-Consultar [colaboración](CONTRIBUTING.md), [backlog](docs/backlog.md), [issues en GitHub](docs/github-issues.md), [arquitectura](docs/architecture.md), [contrato API](docs/api-contract.md), [alcance](docs/scope.md) y [despliegue](docs/deployment.md).
+Consultar [colaboración](CONTRIBUTING.md), [backlog](docs/backlog.md), [issues en GitHub](docs/github-issues.md), [arquitectura](docs/architecture.md), [contrato API](docs/api-contract.md), [alcance](docs/scope.md), [despliegue](docs/deployment.md) y [guía de demo](docs/demo.md).
 
 ## Contenido y propiedad
 
