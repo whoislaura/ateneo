@@ -39,6 +39,10 @@ Tras cambiar `.env`: `docker compose up -d` (recrea la API).
 
 **Cuentas IA rotativas.** Con varias claves, cada llamada empieza por la última que funcionó; ante 429, 5xx, timeout o error de red pasa a la siguiente. Hace como máximo un intento por clave (dos si hay una sola) y después la API responde 503 `service_unavailable` sin guardar nada. Otros 4xx (p. ej. 401 por clave revocada) no se reintentan: retirar esa clave de la lista. Las claves nunca se registran; los reintentos aparecen como `ai_retry` con la posición de la clave (`key_index`).
 
+### Límites de subida
+
+Nginx acepta cuerpos de hasta 25 MB (`frontend/nginx.conf`); el backend corta en `ATENEO_MAX_UPLOAD_MB` (20 por defecto) y devuelve el 413 JSON del contrato. Ese margen de 5 MB deja responder al backend antes de que Nginx corte. Si se sube `ATENEO_MAX_UPLOAD_MB` por encima de 25, actualizar también `client_max_body_size`.
+
 ### Migraciones y primer administrador
 
 La imagen de la API ejecuta `alembic upgrade head` antes de arrancar uvicorn; si la migración falla, el contenedor no llega a *healthy* y `up --wait` (y el despliegue) falla. No hay registro público; crear el primer administrador (pide la contraseña dos veces):
