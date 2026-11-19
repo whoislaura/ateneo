@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.rag import index, vector
 from app.rag.citations import db_sources, sqlite_sources, verify_citations
 from app.rag.index import content_terms
+from app.rag.rotation import rotating
 
 NOT_FOUND = "No encontrado en el corpus."
 
@@ -54,11 +55,14 @@ def fake_provider(system: str, user: str) -> str:
     return best
 
 
-def openai_compatible_provider(system: str, user: str) -> str:
-    """API de chat compatible con OpenAI; la clave solo se lee del entorno."""
-    key, model = os.environ.get("ATENEO_LLM_API_KEY"), os.environ.get("ATENEO_LLM_MODEL")
+def openai_compatible_provider(system: str, user: str, key: str | None = None) -> str:
+    """API de chat compatible con OpenAI; la clave viene del entorno (o de `rotation`)."""
+    key, model = key or os.environ.get("ATENEO_LLM_API_KEY"), os.environ.get("ATENEO_LLM_MODEL")
     if not key or not model:
-        raise ValueError("Definir ATENEO_LLM_API_KEY y ATENEO_LLM_MODEL para el proveedor real.")
+        raise ValueError(
+            "Definir ATENEO_LLM_API_KEY (o ATENEO_LLM_API_KEYS) y ATENEO_LLM_MODEL "
+            "para el proveedor real."
+        )
     base_url = os.environ.get("ATENEO_LLM_BASE_URL", "https://api.openai.com/v1").rstrip("/")
     payload = {
         "model": model,
@@ -74,7 +78,10 @@ def openai_compatible_provider(system: str, user: str) -> str:
         return json.load(response)["choices"][0]["message"]["content"]
 
 
-PROVIDERS: dict[str, Provider] = {"fake": fake_provider, "openai": openai_compatible_provider}
+PROVIDERS: dict[str, Provider] = {
+    "fake": fake_provider,
+    "openai": rotating(openai_compatible_provider, "ATENEO_LLM"),
+}
 
 
 def retrieve(

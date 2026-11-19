@@ -47,6 +47,7 @@ jobs:
       COMPOSE_ENV_FILE: .env.example
     steps:
       - uses: actions/checkout@v4
+      - run: bash -n infra/backup.sh
       - run: docker compose --env-file .env.example config --quiet
       - run: IMAGE_TAG=ci docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml config --quiet
       - run: docker compose --env-file .env.example up --build --wait --wait-timeout 180

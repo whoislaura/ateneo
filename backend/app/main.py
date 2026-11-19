@@ -8,8 +8,9 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from starlette.exceptions import HTTPException
 
-from app import api
+from app import api, logs
 
+logs.setup()
 app = FastAPI(title="Ateneo API", version="0.1.0")
 app.include_router(api.public)
 app.include_router(api.router)
@@ -29,6 +30,15 @@ def http_error(request: Request, exc: HTTPException) -> JSONResponse:
 @app.exception_handler(RequestValidationError)
 def validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
     return error_response(422, "validation_error", "Solicitud inválida.", exc.errors())
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    def internal_error(request_id: str) -> JSONResponse:
+        details = {"request_id": request_id}
+        return error_response(500, "internal_error", "Error interno del servidor.", details)
+
+    return await logs.request_logging(request, call_next, internal_error)
 
 
 class HealthResponse(BaseModel):

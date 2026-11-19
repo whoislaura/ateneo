@@ -66,9 +66,11 @@ jobs:
           ssh -i ~/.ssh/id_deploy -p "$DEPLOY_PORT" "$target" "mkdir -p '$DEPLOY_PATH/infra/db'"
           scp -i ~/.ssh/id_deploy -P "$DEPLOY_PORT" compose.yaml compose.prod.yaml "$target:$DEPLOY_PATH/"
           scp -i ~/.ssh/id_deploy -P "$DEPLOY_PORT" infra/db/init.sql "$target:$DEPLOY_PATH/infra/db/"
+          scp -i ~/.ssh/id_deploy -P "$DEPLOY_PORT" infra/backup.sh "$target:$DEPLOY_PATH/infra/"
           ssh -i ~/.ssh/id_deploy -p "$DEPLOY_PORT" "$target" "set -e
             cd '$DEPLOY_PATH'
             export IMAGE_TAG='$GITHUB_SHA' COMPOSE_FILE=compose.yaml:compose.prod.yaml
             docker compose pull --quiet
+            # La API aplica las migraciones al arrancar; --wait falla si no llega a healthy.
             docker compose up -d --wait --wait-timeout 180
             docker compose exec -T web wget -qO- http://127.0.0.1/api/v1/health"

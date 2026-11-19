@@ -25,3 +25,4 @@ indexes/
 *.sqlite3-*
 *.db
 *.db-*
+backups/

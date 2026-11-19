@@ -11,7 +11,9 @@ from sqlalchemy.orm import Session, sessionmaker
 @cache
 def session_factory() -> sessionmaker[Session]:
     # Perezoso: importar la app (tests, OpenAPI) no exige base de datos.
-    return sessionmaker(create_engine(os.environ.get("DATABASE_URL", "postgresql+psycopg://")))
+    # hide_parameters: los errores (y sus logs) no incluyen contraseñas, tokens ni preguntas.
+    url = os.environ.get("DATABASE_URL", "postgresql+psycopg://")
+    return sessionmaker(create_engine(url, hide_parameters=True))
 
 
 def get_db() -> Iterator[Session]:

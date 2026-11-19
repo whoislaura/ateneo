@@ -17,6 +17,14 @@ docker compose up --build --wait
 
 Abrir http://localhost:8080. La página debe indicar «Conexión disponible». La API responde en http://localhost:8080/api/v1/health. Detener con `docker compose down`; el volumen de PostgreSQL se conserva.
 
+La API aplica las migraciones al arrancar. Para entrar, crear el primer administrador (pide la contraseña):
+
+```powershell
+docker compose exec api python -m app.auth create-user admin@upr.edu.cu --name "Nombre" --role admin
+```
+
+La IA usa el proveedor `fake` (sin red ni claves) salvo que `.env` indique otro; ver [despliegue](docs/deployment.md#operación).
+
 El archivo `.env` inicial usa una contraseña exclusivamente local. PostgreSQL y la API no publican puertos al host; el sitio escucha únicamente en loopback. El acceso remoto y HTTPS se definirán con el servidor institucional.
 
 ## Desarrollo sin Docker

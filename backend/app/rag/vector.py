@@ -16,6 +16,7 @@ from app.models import Document as DocumentRow
 from app.models import Page as PageRow
 from app.rag.index import content_terms, document_report
 from app.rag.ingestion import Document, IngestionError
+from app.rag.rotation import rotating
 
 Embedder = Callable[[list[str]], list[list[float]]]
 
@@ -53,11 +54,14 @@ def fake_embedder(texts: list[str]) -> list[list[float]]:
     return vectors
 
 
-def openai_compatible_embedder(texts: list[str]) -> list[list[float]]:
-    """Endpoint `/embeddings` compatible con OpenAI; la clave solo se lee del entorno."""
-    key, model = os.environ.get("ATENEO_EMBED_API_KEY"), os.environ.get("ATENEO_EMBED_MODEL")
+def openai_compatible_embedder(texts: list[str], key: str | None = None) -> list[list[float]]:
+    """Endpoint `/embeddings` compatible con OpenAI; clave del entorno o de `rotation`."""
+    key, model = key or os.environ.get("ATENEO_EMBED_API_KEY"), os.environ.get("ATENEO_EMBED_MODEL")
     if not key or not model:
-        raise ValueError("Definir ATENEO_EMBED_API_KEY y ATENEO_EMBED_MODEL para embeddings.")
+        raise ValueError(
+            "Definir ATENEO_EMBED_API_KEY (o ATENEO_EMBED_API_KEYS) y ATENEO_EMBED_MODEL "
+            "para embeddings."
+        )
     base_url = os.environ.get("ATENEO_EMBED_BASE_URL", "https://api.openai.com/v1").rstrip("/")
     dimension, vectors = embedding_dimension(), []
     for start in range(0, len(texts), 64):
@@ -74,7 +78,10 @@ def openai_compatible_embedder(texts: list[str]) -> list[list[float]]:
     return vectors
 
 
-EMBEDDERS: dict[str, Embedder] = {"fake": fake_embedder, "openai": openai_compatible_embedder}
+EMBEDDERS: dict[str, Embedder] = {
+    "fake": fake_embedder,
+    "openai": rotating(openai_compatible_embedder, "ATENEO_EMBED"),
+}
 
 
 def store_document(session: Session, document: Document, embedder: Embedder) -> dict:
