@@ -153,7 +153,10 @@ export function Examen() {
                 )
               })}
             </ol>
-            {answers.length === 0 && <button type="submit" disabled={pending}>Ver respuestas</button>}
+            <button type="submit" disabled={pending || answers.length > 0}>
+              {answers.length > 0 ? 'Respuestas mostradas' : 'Ver respuestas'}
+            </button>
+            {answers.length > 0 && <p role="status">Respuestas y fuentes cargadas.</p>}
           </form>
           <Link to={`/feedback?exam_id=${exam.id}`}>Enviar feedback de este examen</Link>
         </section>
