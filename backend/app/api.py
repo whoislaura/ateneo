@@ -8,7 +8,7 @@ from typing import Annotated, NoReturn
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app import citations, query
+from app import citations, corpus, generation, query
 from app.auth import (
     TOKEN_TTL,
     authenticate,
@@ -19,7 +19,16 @@ from app.auth import (
     revoke_session,
 )
 from app.db import get_db
-from app.models import Answer, AnswerKind, HistoryAction, HistoryEntry, Role, User
+from app.models import (
+    Answer,
+    AnswerKind,
+    AnswerStatus,
+    Document,
+    HistoryAction,
+    HistoryEntry,
+    Role,
+    User,
+)
 from app.schemas import (
     AnswerOut,
     CitationOut,
@@ -45,6 +54,7 @@ from app.schemas import (
 
 ERRORS = {code: {"model": ErrorResponse} for code in (401, 403, 422, 501)}
 NOT_FOUND = {404: {"model": ErrorResponse}}
+UNAVAILABLE = {503: {"model": ErrorResponse}}
 
 public = APIRouter(prefix="/api/v1", responses=ERRORS)
 router = APIRouter(prefix="/api/v1", responses=ERRORS, dependencies=[Depends(current_user)])
@@ -161,12 +171,48 @@ def create_query(
     "/generations",
     response_model=AnswerOut,
     status_code=201,
+    responses={503: {"model": ErrorResponse}},
     dependencies=STUDY,
     tags=["consulta"],
 )
-def create_generation(body: GenerationRequest):
-    """Estudiante, Profesor. Resumen, esquema, cuadro o diagrama en texto, con citas."""
-    not_implemented()
+def create_generation(
+    body: GenerationRequest,
+    user: Annotated[User, Depends(current_user)],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Estudiante, Profesor. Resumen, esquema, cuadro o diagrama en texto, con citas (CU-05)."""
+    filters = body.model_dump(exclude={"format", "prompt"})
+    try:
+        result = generation.generate(db, body.format, body.prompt, **filters)
+    except (ValueError, OSError) as exc:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "El servicio de generación no está disponible."
+        ) from exc
+    answer_status, content, valid = citations.validate(db, result)
+    # Si la validación quita marcas, un elemento puede quedar sin fuente: se rechaza entero.
+    if answer_status == AnswerStatus.ANSWERED and not generation.well_formed(body.format, content):
+        answer_status, content, valid = AnswerStatus.NO_EVIDENCE, citations.NO_EVIDENCE, []
+    answer = Answer(
+        user_id=user.id,
+        kind=AnswerKind(body.format),
+        status=answer_status,
+        question=body.prompt,
+        content=content,
+        citations=valid,
+        **filters,
+    )
+    db.add(answer)
+    db.flush()
+    db.add(
+        HistoryEntry(
+            user_id=user.id,
+            action=HistoryAction.GENERATION,
+            summary=body.prompt,
+            answer_id=answer.id,
+        )
+    )
+    db.commit()
+    return answer_out(answer)
 
 
 @router.get(
@@ -190,6 +236,7 @@ def get_answer(
 @router.get("/documents", response_model=list[DocumentOut], tags=["corpus"])
 def list_documents(
     user: Annotated[User, Depends(current_user)],
+    db: Annotated[Session, Depends(get_db)],
     year: Annotated[Year | None, Query()] = None,
     subject: str | None = None,
     topic: str | None = None,
@@ -198,42 +245,59 @@ def list_documents(
     """Todos los roles; `include_retired` solo para Profesor y Administrador."""
     if include_retired and user.role == Role.STUDENT:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "No tiene permiso para esta acción.")
-    not_implemented()
+    rows = corpus.documents(
+        db, year=year, subject=subject, topic=topic, include_retired=include_retired
+    )
+    return [DocumentOut.model_validate(row, from_attributes=True) for row in rows]
 
 
 @router.post(
     "/documents",
     response_model=IngestionReport,
     status_code=201,
-    responses={409: {"model": ErrorResponse}},
+    responses={409: {"model": ErrorResponse}, 413: {"model": ErrorResponse}, **UNAVAILABLE},
     dependencies=CORPUS,
     tags=["corpus"],
 )
-def upload_document(form: Annotated[DocumentUpload, Form(media_type="multipart/form-data")]):
-    """Profesor, Administrador. 409 si `document_id` ya existe."""
-    not_implemented()
+def upload_document(
+    form: Annotated[DocumentUpload, Form(media_type="multipart/form-data")],
+    user: Annotated[User, Depends(current_user)],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Profesor, Administrador. 409 si `document_id` ya existe (también si está retirado)."""
+    if db.get(Document, form.document_id) is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Ya existe un documento con ese id.")
+    return corpus.ingest(db, form.document_id, form, user, HistoryAction.DOCUMENT_UPLOAD)
 
 
 @router.get(
     "/documents/{document_id}", response_model=DocumentOut, responses=NOT_FOUND, tags=["corpus"]
 )
-def get_document(document_id: str):
-    """Todos los roles."""
-    not_implemented()
+def get_document(
+    document_id: str,
+    user: Annotated[User, Depends(current_user)],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Todos los roles; un documento retirado es 404 para Estudiante."""
+    return DocumentOut.model_validate(corpus.visible(db, document_id, user), from_attributes=True)
 
 
 @router.put(
     "/documents/{document_id}",
     response_model=IngestionReport,
-    responses=NOT_FOUND,
+    responses=NOT_FOUND | {413: {"model": ErrorResponse}} | UNAVAILABLE,
     dependencies=CORPUS,
     tags=["corpus"],
 )
 def replace_document(
-    document_id: str, form: Annotated[DocumentReplace, Form(media_type="multipart/form-data")]
+    document_id: str,
+    form: Annotated[DocumentReplace, Form(media_type="multipart/form-data")],
+    user: Annotated[User, Depends(current_user)],
+    db: Annotated[Session, Depends(get_db)],
 ):
-    """Profesor, Administrador. Sustituye PDF y metadatos y reindexa el documento."""
-    not_implemented()
+    """Profesor, Administrador. Sustituye PDF y metadatos y reindexa; reactiva un retirado."""
+    corpus.existing(db, document_id)
+    return corpus.ingest(db, document_id, form, user, HistoryAction.DOCUMENT_UPDATE)
 
 
 @router.delete(
@@ -243,9 +307,13 @@ def replace_document(
     dependencies=CORPUS,
     tags=["corpus"],
 )
-def retire_document(document_id: str):
+def retire_document(
+    document_id: str,
+    user: Annotated[User, Depends(current_user)],
+    db: Annotated[Session, Depends(get_db)],
+):
     """Profesor, Administrador. Retira el documento: deja de usarse en respuestas nuevas."""
-    not_implemented()
+    corpus.retire(db, document_id, user)
 
 
 @router.get(
@@ -254,9 +322,22 @@ def retire_document(document_id: str):
     responses=NOT_FOUND,
     tags=["corpus"],
 )
-def get_page(document_id: str, page_number: int):
+def get_page(
+    document_id: str,
+    page_number: int,
+    user: Annotated[User, Depends(current_user)],
+    db: Annotated[Session, Depends(get_db)],
+):
     """Todos los roles. Texto de la página vigente para verificar una cita (CU-05)."""
-    not_implemented()
+    row = corpus.page(db, document_id, page_number, user)
+    return PageOut(
+        document_id=row.document_id,
+        version=db.get(Document, row.document_id).version,
+        number=row.number,
+        label=row.label,
+        text=row.text,
+        status=row.status,
+    )
 
 
 # CU-04

@@ -17,6 +17,26 @@ services:
     restart: unless-stopped
   api:
     build: ./backend
+    # Al arrancar aplica las migraciones (alembic upgrade head) y luego sirve la API.
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-ateneo}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-ateneo}
+      ATENEO_TOKEN_TTL_SECONDS: ${ATENEO_TOKEN_TTL_SECONDS:-28800}
+      # IA: `fake` por defecto (sin red ni claves). Ver docs/deployment.md.
+      ATENEO_LLM_PROVIDER: ${ATENEO_LLM_PROVIDER:-fake}
+      ATENEO_LLM_API_KEY: ${ATENEO_LLM_API_KEY:-}
+      ATENEO_LLM_API_KEYS: ${ATENEO_LLM_API_KEYS:-}
+      ATENEO_LLM_MODEL: ${ATENEO_LLM_MODEL:-}
+      ATENEO_LLM_BASE_URL: ${ATENEO_LLM_BASE_URL:-https://api.openai.com/v1}
+      ATENEO_EMBEDDER: ${ATENEO_EMBEDDER:-fake}
+      ATENEO_EMBED_API_KEY: ${ATENEO_EMBED_API_KEY:-}
+      ATENEO_EMBED_API_KEYS: ${ATENEO_EMBED_API_KEYS:-}
+      ATENEO_EMBED_MODEL: ${ATENEO_EMBED_MODEL:-}
+      ATENEO_EMBED_BASE_URL: ${ATENEO_EMBED_BASE_URL:-https://api.openai.com/v1}
+      ATENEO_EMBED_DIM: ${ATENEO_EMBED_DIM:-256}
+      ATENEO_MAX_DISTANCE: ${ATENEO_MAX_DISTANCE:-0.5}
+    depends_on:
+      db:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "/app/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=3)"]
       interval: 5s

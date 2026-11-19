@@ -41,6 +41,12 @@ Resultado (`dict`), con la forma que consume `app.query.ask`:
 
 La salida JSON del CLI `ask` es este mismo `dict`.
 
+## Generación (CU-02, AT-17)
+
+`app.rag.generate.generate_material(source, format, prompt, provider, embedder=..., year=..., subject=..., topic=...)` reutiliza el mismo recorrido: `retrieve`, prompt de sistema con las reglas de CU-01 más las instrucciones del formato (`INSTRUCTIONS`), marcas `[Fn]`, cita exacta y verificación con `cite_reply` (extraído de `answer_question`, sin cambiar CU-01). Solo cambia la afirmación que se cita: la línea o celda de tabla donde está la marca, no las anteriores. Devuelve el mismo `dict` que `answer_question` más `format` y, si la salida no sigue la estructura, `error` con `status` `no_evidence`. La estructura de cada formato y su comprobación (`well_formed`) están en el [contrato](api-contract.md#generación-cu-02-at-17). La API llama a `app.generation.generate`, que elige proveedor y embeddings con las mismas variables que `app.query`.
+
+El proveedor `fake` de generación (`app.rag.generate.fake_provider`) toma hasta tres oraciones recuperadas con más términos del tema y las devuelve en la estructura pedida: un párrafo, un esquema con el tema como raíz, un cuadro `Fuente | Contenido` o un diagrama `tema -> fuente: oración`. Los casos dorados de los cuatro formatos están en `backend/tests/test_generations.py`.
+
 ## Proveedores
 
 | Nombre | Uso |
@@ -89,4 +95,5 @@ Con el corpus oficial, el set debe sustituirse por preguntas revisadas por docen
 - La oración citada se elige por términos comunes con la afirmación; las abreviaturas con punto («art.») y los saltos de línea la cortan. Si no coincide ninguna, se cita el fragmento entero.
 - Solo se reconocen marcas `[Fn]`; otros formatos cuentan como respuesta sin cita. Las marcas `[n]` que escriba el modelo se eliminan.
 - El proveedor `fake` y el embedder `fake` no miden calidad; solo verifican el recorrido completo.
+- Generación: la estructura se valida por líneas; un origen de diagrama con ` -> ` o una celda con `|` invalidan la salida entera (pasa a `no_evidence`), igual que un elemento sin cita. No hay casos dorados con un proveedor real.
 - La lista de palabras vacías es mínima y se ajustará con preguntas reales.
