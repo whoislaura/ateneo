@@ -14,8 +14,7 @@ from sqlalchemy.orm import Session
 from app.models import Chunk, DocumentStatus, PageStatus
 from app.models import Document as DocumentRow
 from app.models import Page as PageRow
-from app.rag.answer import content_terms
-from app.rag.index import document_report
+from app.rag.index import content_terms, document_report
 from app.rag.ingestion import Document, IngestionError
 
 Embedder = Callable[[list[str]], list[list[float]]]
@@ -27,6 +26,19 @@ def embedding_dimension() -> int:
     if not value.isdigit() or int(value) < 1:
         raise ValueError("ATENEO_EMBED_DIM debe ser un entero positivo.")
     return int(value)
+
+
+def max_distance() -> float:
+    """Distancia coseno máxima para aceptar un fragmento sin términos comunes con la pregunta."""
+    # shortcut: 0.5 es una hipótesis; calibrar con preguntas doradas al elegir el modelo.
+    value = os.environ.get("ATENEO_MAX_DISTANCE", "0.5")
+    try:
+        distance = float(value)
+    except ValueError:
+        distance = -1.0
+    if not 0 <= distance <= 2:
+        raise ValueError("ATENEO_MAX_DISTANCE debe ser un número entre 0 y 2.")
+    return distance
 
 
 def fake_embedder(texts: list[str]) -> list[list[float]]:

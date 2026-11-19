@@ -158,8 +158,6 @@ uv run --frozen alembic upgrade head
 
 ## Pendiente
 
-- Citas a nivel de frase: hasta AT-15 la consulta cita el primer fragmento recuperado de cada página citada, no la frase exacta.
-
 - Gestión de usuarios más allá del alta por consola (baja, cambio de rol o contraseña).
 - Consulta del feedback por administradores y profesores (AT-28).
 - Límite de tamaño de PDF y procesamiento asíncrono de subidas (AT-10, AT-18).

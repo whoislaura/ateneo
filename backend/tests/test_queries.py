@@ -89,18 +89,18 @@ def factory(monkeypatch):
         )
         db.commit()
 
-    def retrieve(question, *, year, subject, topic, limit):
+    def search(db, question, embedder, *, year, subject, topic, limit):
         if year not in (None, 1):
             return []
         passage = {"chunk_id": "c1", "document_id": "doc", "title": "Documento"}
         return [
             passage
             | {"version": VERSION, "page_number": 1, "start": 0, "end": len(TEXT)}
-            | {"text": TEXT}
+            | {"text": TEXT, "score": 0.0, "page_label": "i"}
         ]
 
     # pgvector no existe en SQLite: se sustituye solo la recuperación, no el adaptador.
-    monkeypatch.setattr(query, "retriever", lambda db: retrieve)
+    monkeypatch.setattr(vector, "search", search)
     monkeypatch.delenv("ATENEO_LLM_PROVIDER", raising=False)
     return factory
 
@@ -133,7 +133,7 @@ def test_query_answers_with_verified_citation_and_history(client, factory):
         "page_number": 1,
         "page_label": "i",
         "start": 0,
-        "end": len(TEXT),
+        "end": len(SENTENCE),  # AT-15 cita la frase, no el fragmento entero
         "quote": None,
     }
     assert citation["quote"] == TEXT[citation["start"] : citation["end"]]
