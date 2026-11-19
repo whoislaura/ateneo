@@ -21,6 +21,7 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-ateneo}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-ateneo}
       ATENEO_TOKEN_TTL_SECONDS: ${ATENEO_TOKEN_TTL_SECONDS:-28800}
+      ATENEO_MAX_UPLOAD_MB: ${ATENEO_MAX_UPLOAD_MB:-20}
       # IA: `fake` por defecto (sin red ni claves). Ver docs/deployment.md.
       ATENEO_LLM_PROVIDER: ${ATENEO_LLM_PROVIDER:-fake}
       ATENEO_LLM_API_KEY: ${ATENEO_LLM_API_KEY:-}

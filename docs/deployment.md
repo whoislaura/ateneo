@@ -29,6 +29,7 @@ Compose construye `DATABASE_URL` con `POSTGRES_*` (por eso `POSTGRES_PASSWORD` s
 | Variable | Uso |
 |---|---|
 | `ATENEO_TOKEN_TTL_SECONDS` | Vida del token de sesión (28800) |
+| `ATENEO_MAX_UPLOAD_MB` | Límite de subida de PDFs en MB (20; Nginx corta en 25) |
 | `ATENEO_LLM_PROVIDER`, `ATENEO_EMBEDDER` | `fake` (defecto) u `openai` (API compatible) |
 | `ATENEO_LLM_API_KEYS`, `ATENEO_EMBED_API_KEYS` | Claves separadas por comas (cuentas rotativas); alternativa: `*_API_KEY` con una sola |
 | `ATENEO_LLM_MODEL`, `ATENEO_EMBED_MODEL` | Modelos; obligatorios con `openai` |
