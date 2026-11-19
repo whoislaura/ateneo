@@ -153,7 +153,7 @@ Costumbre -> Ley escrita: se codifica [1]
 Ley escrita -> Edictos [2]
 ```
 
-La estructura se comprueba dos veces (`app.rag.generate.well_formed`): sobre la salida del modelo y otra vez tras `app.citations.validate`, porque quitar una cita inválida puede dejar un elemento sin fuente. Si no se cumple, la generación entera pasa a `no_evidence` con `content` = `No encontrado en el corpus.`; no se devuelve material parcial ni sin fuentes.
+La estructura se comprueba con `app.rag.generate.well_formed` en el RAG y tras la validación de citas en la API. Si falla la estructura o alguna cita utilizada, la generación entera pasa a `no_evidence` con `content` = `No encontrado en el corpus.`.
 
 ### Validación de citas (AT-12)
 
@@ -161,8 +161,8 @@ La estructura se comprueba dos veces (`app.rag.generate.well_formed`): sobre la 
 
 1. Una cita se descarta si su documento no existe, está retirado o su versión no es la vigente; si la página no existe; si `start`/`end` no son enteros con `0 <= start < end`; o si `quote` está vacía o difiere de `pages.text[start:end]`.
 2. Título del documento y etiqueta de página se copian de la base, no del modelo. `chunk_id` pasa a nulo si el fragmento no existe en ese documento y página.
-3. Las marcas `[n]` de citas descartadas o inexistentes se eliminan del texto; las citas válidas sin marca se descartan. Las restantes se renumeran `1..k` por orden de aparición.
-4. Si no queda ninguna cita, la respuesta pasa a `no_evidence` con `content` = `No encontrado en el corpus.`, sin el texto generado.
+3. Cada marca `[n]` debe referenciar una cita verificable. Se conservan solo las citas utilizadas y se renumeran `1..k` por orden de aparición.
+4. Si una marca referencia una cita descartada o inexistente, o si el texto carece de marcas, la respuesta pasa a `no_evidence` con `content` = `No encontrado en el corpus.`, sin el texto generado.
 
 ## Modelo de datos
 

@@ -180,8 +180,7 @@ def test_generation_failure_is_503_and_persists_nothing(client, factory, monkeyp
         assert db.scalar(select(func.count()).select_from(Answer)) == 0
 
 
-def test_generation_dropping_a_citation_rejects_the_structure(client, monkeypatch):
-    # La validación de la API quita la marca de la cita falsa y esa fila queda sin fuente.
+def test_generation_with_an_invalid_citation_is_rejected(client, monkeypatch):
     table = "| A | B |\n|---|---|\n| x | Bien [1] |\n| y | Inventado [2] |"
     result = {"status": "answered", "answer": table, "citations": [cite(), cite(quote="otra")]}
     monkeypatch.setattr(generation, "generate", lambda db, format, prompt, **filters: result)

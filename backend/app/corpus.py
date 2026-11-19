@@ -70,7 +70,12 @@ def ingest(
     # store_document abre su propia transacción: se cierra la que abrió la autenticación.
     db.commit()
     try:
-        report = vector.store_document(db, document, setting(vector.EMBEDDERS, "ATENEO_EMBEDDER"))
+        report = vector.store_document(
+            db,
+            document,
+            setting(vector.EMBEDDERS, "ATENEO_EMBEDDER"),
+            create_only=action == HistoryAction.DOCUMENT_UPLOAD,
+        )
     except IntegrityError as exc:  # alta concurrente del mismo identificador
         raise HTTPException(status.HTTP_409_CONFLICT, "El documento ya existe.") from exc
     except (ValueError, OSError) as exc:
