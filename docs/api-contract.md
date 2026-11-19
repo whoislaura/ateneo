@@ -43,6 +43,8 @@ Cada usuario tiene un único rol. Sin sesión válida: 401. Sin permiso: 403. Re
   uv run python -m app.auth create-user admin@upr.edu.cu --name "Nombre Apellido" --role admin
   ```
 
+- El mismo comando mantiene cuentas: `set-password` (revoca las sesiones abiertas), `set-role`, `deactivate`/`activate` (la baja también revoca sesiones) y `list-users`.
+
 - El frontend guarda el token donde decida AT-05/AT-20; se recomienda memoria o `sessionStorage`, nunca registrarlo en logs.
 
 ## Endpoints
@@ -213,7 +215,7 @@ uv run --frozen alembic upgrade head
 
 ## Pendiente
 
-- Gestión de usuarios más allá del alta por consola (baja, cambio de rol o contraseña).
+- Gestión de usuarios desde la API o la interfaz; la consola ya cubre alta, contraseña, rol, baja y listado.
 - Consulta del feedback por administradores y profesores (AT-28).
 - Procesamiento asíncrono de subidas (ver el `shortcut` de la gestión del corpus).
 - Dimensión del embedding e índice vectorial (AT-14).
