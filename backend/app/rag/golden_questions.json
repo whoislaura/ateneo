@@ -1,55 +1,12 @@
 [
-  {
-    "id": "g01",
-    "question": "¿Qué conserva la biblioteca ficticia?",
-    "expected": [{"document_id": "muestra-a", "page": 1}]
-  },
-  {
-    "id": "g02",
-    "question": "¿Qué se describe sobre el préstamo de cuadernos?",
-    "expected": [{"document_id": "muestra-a", "page": 3}]
-  },
-  {
-    "id": "g03",
-    "question": "¿Qué utiliza la evaluación ficticia?",
-    "expected": [{"document_id": "muestra-b", "page": 1}]
-  },
-  {
-    "id": "g04",
-    "question": "¿Qué explica la segunda página sobre la revisión de ejercicios?",
-    "expected": [{"document_id": "muestra-b", "page": 2}]
-  },
-  {
-    "id": "g05",
-    "question": "¿Cuál es el término exclusivo?",
-    "filters": {"year": 1},
-    "expected": [{"document_id": "muestra-a", "page": 1}]
-  },
-  {
-    "id": "g06",
-    "question": "¿Cuál es el término exclusivo?",
-    "filters": {"year": 4, "subject": "Asignatura ficticia B"},
-    "expected": [{"document_id": "muestra-b", "page": 1}]
-  },
-  {
-    "id": "f01",
-    "question": "¿Cuál es la capital de Francia?",
-    "expected": []
-  },
-  {
-    "id": "f02",
-    "question": "¿Qué plazo de prescripción fija el Código Civil para la usucapión?",
-    "expected": []
-  },
-  {
-    "id": "f03",
-    "question": "¿Qué conserva la biblioteca ficticia?",
-    "filters": {"year": 2},
-    "expected": []
-  },
-  {
-    "id": "f04",
-    "question": "¿De qué?",
-    "expected": []
-  }
+  {"id": "g01", "question": "¿Qué conserva la biblioteca ficticia?", "expected": [{"document_id": "muestra-a", "page": 1, "quote": "La biblioteca ficticia conserva un catálogo de libros y páginas."}]},
+  {"id": "g02", "question": "¿Qué se describe sobre el préstamo de cuadernos?", "expected": [{"document_id": "muestra-a", "page": 3, "quote": "La página tercera describe el préstamo ficticio de cuadernos."}]},
+  {"id": "g03", "question": "¿Qué utiliza la evaluación ficticia?", "expected": [{"document_id": "muestra-b", "page": 1, "quote": "Esta evaluación ficticia utiliza una rúbrica de colores."}]},
+  {"id": "g04", "question": "¿Qué explica la segunda página sobre la revisión de ejercicios?", "expected": [{"document_id": "muestra-b", "page": 2, "quote": "La segunda página explica una revisión ficticia de ejercicios."}]},
+  {"id": "g05", "question": "¿Cuál es el término exclusivo?", "filters": {"year": 1}, "expected": [{"document_id": "muestra-a", "page": 1, "quote": "El término exclusivo de esta página es azafrán."}]},
+  {"id": "g06", "question": "¿Cuál es el término exclusivo?", "filters": {"year": 4, "subject": "Asignatura ficticia B"}, "expected": [{"document_id": "muestra-b", "page": 1, "quote": "El término exclusivo es turquesa."}]},
+  {"id": "f01", "question": "¿Cuál es la capital de Francia?", "expected": []},
+  {"id": "f02", "question": "¿Qué plazo de prescripción fija el Código Civil para la usucapión?", "expected": []},
+  {"id": "f03", "question": "¿Qué conserva la biblioteca ficticia?", "filters": {"year": 2}, "expected": []},
+  {"id": "f04", "question": "¿De qué?", "expected": []}
 ]

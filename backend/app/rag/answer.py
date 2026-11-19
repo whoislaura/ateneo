@@ -1,54 +1,40 @@
-"""Prototipo RAG: respuestas restringidas al índice de muestra con citas verificadas."""
+"""CU-01: recuperación, respuesta en español restringida al corpus y citas verificadas (CU-05)."""
 
 import json
 import os
 import re
-import unicodedata
 import urllib.request
 from collections.abc import Callable
 from pathlib import Path
 
-from app.rag.index import search
+from sqlalchemy.orm import Session
+
+from app.rag import index, vector
+from app.rag.citations import db_sources, sqlite_sources, verify_citations
+from app.rag.index import content_terms
 
 NOT_FOUND = "No encontrado en el corpus."
 
 SYSTEM_PROMPT = f"""Eres Ateneo, asistente académico de la Licenciatura en Derecho.
 Responde en español usando únicamente los fragmentos del corpus que recibes.
 - No uses conocimiento externo ni supongas datos ausentes en los fragmentos.
-- Cada afirmación debe terminar con su cita exacta, copiada del encabezado del fragmento: \
-[documento, p. N].
-- Cita solo documentos y páginas que aparecen en los fragmentos.
+- Cada afirmación debe terminar con la marca del fragmento que la respalda, copiada de su \
+encabezado, por ejemplo [F1]. Una marca por corchete.
+- Usa solo marcas que aparecen en los fragmentos.
 - Si los fragmentos no permiten responder, responde exactamente: {NOT_FOUND}"""
 
-# Documento: todo hasta la última coma antes de "p. N".
-CITATION = re.compile(r"\[([^\[\]]+),\s*p\.\s*(\d+)\]")
+MARKER = re.compile(r"\[F(\d+)\]")
 SEPARATOR = "\n---\n"
-
-# shortcut: lista mínima de palabras vacías; sustituir al evaluar con preguntas reales.
-STOPWORDS = frozenset(
-    """a al algo como con cual cuales cuando de del donde el en es esta este esto la las
-    lo los mas para por que quien se segun si sobre son su sus un una uno unos y o ya
-    hay dice dicen describe menciona corpus documento texto""".split()
-)
+# shortcut: oración = hasta . ! ? o salto de línea; abreviaturas como "art." la cortan.
+SENTENCE = re.compile(r"[^\s.!?][^.!?\n]*[.!?]?")
 
 Provider = Callable[[str, str], str]
-# Alternativa al índice SQLite: (pregunta, year=, subject=, topic=, limit=) -> fragmentos.
-Retriever = Callable[..., list[dict]]
-
-
-def fold(text: str) -> str:
-    decomposed = unicodedata.normalize("NFKD", text.casefold())
-    return "".join(char for char in decomposed if not unicodedata.combining(char))
-
-
-def content_terms(text: str) -> list[str]:
-    words = re.findall(r"[^\W_]+", fold(text))
-    return list(dict.fromkeys(word for word in words if word not in STOPWORDS))
 
 
 def build_prompt(question: str, passages: list[dict]) -> str:
     blocks = [
-        f"[{p['document_id']}, p. {p['page_number']}] {p['title']}\n{p['text']}" for p in passages
+        f"[F{n}] {p['title']}, p. {p['page_number']}\n{p['text']}"
+        for n, p in enumerate(passages, 1)
     ]
     return "Fragmentos:\n" + SEPARATOR.join(blocks) + f"{SEPARATOR}Pregunta: {question}"
 
@@ -60,11 +46,11 @@ def fake_provider(system: str, user: str) -> str:
     best, best_score = NOT_FOUND, 0
     for block in body.removeprefix("Fragmentos:\n").split(SEPARATOR):
         header, _, text = block.partition("\n")
-        citation = CITATION.match(header)
-        for sentence in re.split(r"(?<=[.!?])\s+|\n", text):
+        marker = MARKER.match(header)
+        for sentence in SENTENCE.findall(text):
             score = len(wanted & set(content_terms(sentence)))
-            if citation and score > best_score:
-                best, best_score = f"{sentence.strip()} {citation.group(0)}", score
+            if marker and score > best_score:
+                best, best_score = f"{sentence.strip()} {marker.group(0)}", score
     return best
 
 
@@ -91,74 +77,141 @@ def openai_compatible_provider(system: str, user: str) -> str:
 PROVIDERS: dict[str, Provider] = {"fake": fake_provider, "openai": openai_compatible_provider}
 
 
-def verify_citations(answer: str, passages: list[dict]) -> tuple[str, list[dict], list[str]]:
-    """Conserva solo las citas que corresponden a un fragmento recuperado."""
-    retrieved: dict[tuple[str, int], dict] = {}
-    for p in passages:
-        source = retrieved.setdefault(
-            (p["document_id"], p["page_number"]),
-            {"document_id": p["document_id"], "title": p["title"], "page": p["page_number"]},
-        )
-        source.setdefault("chunk_ids", []).append(p["chunk_id"])
-    valid, invalid = {}, []
+def retrieve(
+    source: Path | Session,
+    question: str,
+    embedder: vector.Embedder,
+    *,
+    year: int | None,
+    subject: str | None,
+    topic: str | None,
+    limit: int,
+) -> list[dict]:
+    """FTS5 con una ruta de índice; pgvector con una sesión, descartando vecinos sin relación."""
+    terms = content_terms(question)
+    if not terms:
+        return []
+    filters = {"year": year, "subject": subject, "topic": topic, "limit": limit}
+    if isinstance(source, Path):
+        return index.search(source, " ".join(terms), **filters)
+    # Híbrido simple: se acepta un vecino si comparte un término con la pregunta o está muy cerca.
+    wanted, threshold = set(terms), vector.max_distance()
+    return [
+        p
+        for p in vector.search(source, question, embedder, **filters)
+        if p["score"] <= threshold or wanted & set(content_terms(p["text"]))
+    ]
 
-    def check(match: re.Match) -> str:
-        key = (match.group(1).strip(), int(match.group(2)))
-        if key in retrieved:
-            valid[key] = retrieved[key]
-            return match.group(0)
-        invalid.append(match.group(0))
-        return ""
 
-    cleaned = re.sub(r"[ \t]+([.,;:])", r"\1", CITATION.sub(check, answer)).strip()
-    return cleaned, list(valid.values()), invalid
+def claim_before(text: str, position: int) -> str:
+    """Última oración antes de una marca: la afirmación que esa marca respalda."""
+    before = MARKER.sub("", text[:position]).strip()
+    return re.split(r"(?<=[.!?])\s+", before)[-1]
+
+
+def quote_citation(passage: dict, claim: str) -> dict:
+    """Cita sobre la oración del fragmento más parecida a la afirmación (o el fragmento entero)."""
+    text, wanted = passage["text"], set(content_terms(claim))
+    span, best = (0, len(text)), 0
+    for match in SENTENCE.finditer(text):
+        score = len(wanted & set(content_terms(match.group())))
+        if score > best:
+            span, best = (match.start(), match.start() + len(match.group().rstrip())), score
+    # El texto del fragmento es page.text[start:end], así que los offsets pasan a la página.
+    return {
+        "chunk_id": passage["chunk_id"],
+        "document_id": passage["document_id"],
+        "title": passage["title"],
+        "version": passage["version"],
+        "page": passage["page_number"],
+        "page_label": passage["page_label"],
+        "start": passage["start"] + span[0],
+        "end": passage["start"] + span[1],
+        "quote": text[span[0] : span[1]],
+    }
 
 
 def answer_question(
-    index: Path | Retriever,
+    source: Path | Session,
     question: str,
     provider: Provider = fake_provider,
     *,
+    embedder: vector.Embedder = vector.fake_embedder,
     year: int | None = None,
     subject: str | None = None,
     topic: str | None = None,
     limit: int = 5,
 ) -> dict:
-    terms = content_terms(question)
-    filters = {"year": year, "subject": subject, "topic": topic, "limit": limit}
-    if not terms:
-        passages = []
-    elif isinstance(index, Path):
-        passages = search(index, " ".join(terms), **filters)
-    else:
-        passages = index(question, **filters)
-    result = {"question": question, "answer": NOT_FOUND, "citations": [], "invalid_citations": []}
-    if not passages:
-        return result | {"supported": False}
-    text, citations, invalid = verify_citations(
-        provider(SYSTEM_PROMPT, build_prompt(question, passages)), passages
+    """Responde CU-01. Ver docs/rag-prototype.md para la forma del resultado."""
+    passages = retrieve(
+        source, question, embedder, year=year, subject=subject, topic=topic, limit=limit
     )
-    supported = bool(citations) and NOT_FOUND.casefold() not in text.casefold()
+    result = {
+        "question": question,
+        "status": "no_evidence",
+        "answer": NOT_FOUND,
+        "citations": [],
+        "invalid_citations": [],
+    }
+    if not passages:
+        return result
+    # Las marcas [n] del contrato solo las pone el backend.
+    reply = re.sub(r"\[\d+\]", "", provider(SYSTEM_PROMPT, build_prompt(question, passages)))
+    candidates, invalid = {}, []
+    for match in MARKER.finditer(reply):
+        number = int(match.group(1))
+        if 1 <= number <= len(passages):
+            citation = quote_citation(passages[number - 1], claim_before(reply, match.start()))
+            candidates[match.start()] = citation
+        else:
+            invalid.append({"marker": match.group(0), "reason": "Fragmento no recuperado."})
+    unique = {(c["chunk_id"], c["start"], c["end"]): c for c in candidates.values()}
+    load_sources = sqlite_sources if isinstance(source, Path) else db_sources
+    sources = load_sources(source, (c["chunk_id"] for c in unique.values()))
+    valid, rejected = verify_citations(list(unique.values()), sources)
+    valid_keys = {(c["chunk_id"], c["start"], c["end"]) for c in valid}
+    positions: dict[tuple, int] = {}
+
+    def renumber(match: re.Match) -> str:
+        citation = candidates.get(match.start())
+        key = citation and (citation["chunk_id"], citation["start"], citation["end"])
+        if key not in valid_keys:
+            return ""
+        return f"[{positions.setdefault(key, len(positions) + 1)}]"
+
+    content = re.sub(r"[ \t]+([.,;:])", r"\1", MARKER.sub(renumber, reply)).strip()
+    result["invalid_citations"] = invalid + rejected
+    if not positions or NOT_FOUND.casefold() in content.casefold():
+        return result
     return result | {
-        "answer": text if supported else NOT_FOUND,
-        "citations": citations if supported else [],
-        "invalid_citations": invalid,
-        "supported": supported,
+        "status": "answered",
+        "answer": content,
+        # positions se asigna en orden de inserción: la marca [n] es citations[n - 1].
+        "citations": list(map(unique.get, positions)),
     }
 
 
 def evaluate(
-    index: Path | Retriever, golden: list[dict], provider: Provider = fake_provider
+    source: Path | Session,
+    golden: list[dict],
+    provider: Provider = fake_provider,
+    embedder: vector.Embedder = vector.fake_embedder,
 ) -> dict:
     """Ejecuta las preguntas doradas; una pregunta sin fuentes esperadas debe rechazarse."""
     results = []
     for item in golden:
-        response = answer_question(index, item["question"], provider, **item.get("filters", {}))
-        expected = {(source["document_id"], source["page"]) for source in item["expected"]}
-        cited = {(source["document_id"], source["page"]) for source in response["citations"]}
-        if expected:
-            passed = bool(cited & expected) and not response["invalid_citations"]
+        response = answer_question(
+            source, item["question"], provider, embedder=embedder, **item.get("filters", {})
+        )
+        quoted = {(c["document_id"], c["page"], c["quote"]) for c in response["citations"]}
+        cited = {key[:2] for key in quoted}
+        if item["expected"]:
+            passed = not response["invalid_citations"] and any(
+                (e["document_id"], e["page"]) in cited
+                and ("quote" not in e or (e["document_id"], e["page"], e["quote"]) in quoted)
+                for e in item["expected"]
+            )
         else:
-            passed = not response["supported"]
+            passed = response["status"] == "no_evidence"
         results.append({"id": item["id"], "passed": passed, **response})
     return {"passed": sum(r["passed"] for r in results), "total": len(results), "results": results}

@@ -91,7 +91,7 @@ uv run --frozen python -m app.rag eval
 - `ingest-dir` procesa cada `*.pdf` de la carpeta con su `.json` de metadatos homónimo. Admite `--chunk-size`, `--overlap` y `--embedder`. Devuelve un informe por documento; los fallidos aparecen con `status: error`, no detienen el resto y el código de salida es 1.
 - `search`, `ask` y `eval` usan PostgreSQL cuando no se indica `--index`; con `--index` siguen usando el índice SQLite.
 - Reindexar sustituye en una transacción páginas y fragmentos de la versión vigente, como en SQLite. La fila de `documents` se actualiza en lugar de borrarse, para conservar autoría, fecha de creación e historial. Los embeddings se calculan antes de abrir la transacción: un fallo del proveedor o de escritura conserva la versión anterior. Las citas guardadas mantienen su copia (su `chunk_id` pasa a NULL).
-- Recuperación: distancia coseno de pgvector, ascendente, desempate por identificador, máximo cinco resultados, con el mismo formato que el índice SQLite (`score` es la distancia). Excluye documentos `retired` y vectores de otra dimensión. Filtros de año exacto y asignatura/tema sin distinguir mayúsculas ni espacios extremos. Siempre devuelve los vecinos más cercanos aunque sean poco relevantes; el rechazo depende del modelo y de la verificación de citas. No hay ranking híbrido.
+- Recuperación: distancia coseno de pgvector, ascendente, desempate por identificador, máximo cinco resultados, con el mismo formato que el índice SQLite (`score` es la distancia). Excluye documentos `retired` y vectores de otra dimensión. Filtros de año exacto y asignatura/tema sin distinguir mayúsculas ni espacios extremos. `search` siempre devuelve los vecinos más cercanos aunque sean poco relevantes; la respuesta de CU-01 descarta los que no comparten términos con la pregunta y superan `ATENEO_MAX_DISTANCE` (ver [RAG](rag-prototype.md#flujo)). No hay ranking híbrido.
 
 ### Proveedores de embeddings
 
@@ -100,7 +100,7 @@ uv run --frozen python -m app.rag eval
 | `fake` | Determinista, sin red ni claves: bolsa de términos con hashing. Es el que usan pruebas y CI; no mide calidad semántica. |
 | `openai` | Cualquier endpoint `/embeddings` compatible con OpenAI, en lotes de 64 textos. |
 
-Variables, solo en el entorno local (nunca en Git): `ATENEO_EMBED_DIM` (dimensión, por defecto 256; se valida contra la respuesta del modelo), `ATENEO_EMBED_API_KEY` y `ATENEO_EMBED_MODEL` (obligatorias para `openai`), `ATENEO_EMBED_BASE_URL` (opcional, por defecto `https://api.openai.com/v1`).
+Variables, solo en el entorno local (nunca en Git): `ATENEO_MAX_DISTANCE` (umbral de CU-01, 0.5 por defecto), `ATENEO_EMBED_DIM` (dimensión, por defecto 256; se valida contra la respuesta del modelo), `ATENEO_EMBED_API_KEY` y `ATENEO_EMBED_MODEL` (obligatorias para `openai`), `ATENEO_EMBED_BASE_URL` (opcional, por defecto `https://api.openai.com/v1`).
 
 **El modelo de embeddings sigue sin decidir.** Por eso la columna `chunks.embedding` no tiene dimensión fija ni índice ANN y la búsqueda es exacta (recorrido completo), suficiente para la muestra. Al elegir modelo hay que fijar `ATENEO_EMBED_DIM`, añadir una migración con `vector(N)` e índice HNSW (`vector_cosine_ops`) y reindexar todo el corpus con ese modelo; consulta e indexación deben usar el mismo.
 

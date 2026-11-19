@@ -132,7 +132,6 @@ PDF = {
     "files": {"file": ("a.pdf", b"%PDF", "application/pdf")},
 }
 ROUTES = {
-    "query": ("post", "/api/v1/queries", {"json": {"question": "¿Qué es?"}}),
     "history": ("get", "/api/v1/history", {}),
     "exams": ("get", "/api/v1/exams", {}),
     "documents": ("get", "/api/v1/documents", {}),
@@ -140,13 +139,12 @@ ROUTES = {
     "upload": ("post", "/api/v1/documents", PDF),
     "retire": ("delete", "/api/v1/documents/a", {}),
     "page": ("get", "/api/v1/documents/a/pages/1", {}),
-    "answer": ("get", "/api/v1/answers/1", {}),
     "feedback": ("post", "/api/v1/feedback", {"json": {"kind": "rating", "rating": 5}}),
 }
 FORBIDDEN = {
     Role.STUDENT: {"retired", "upload", "retire"},
     Role.TEACHER: set(),
-    Role.ADMIN: {"query", "history", "exams"},
+    Role.ADMIN: {"history", "exams"},
 }
 
 

@@ -5,7 +5,6 @@ import json
 import os
 import sqlite3
 import sys
-from functools import partial
 from pathlib import Path
 
 from sqlalchemy.exc import SQLAlchemyError
@@ -62,7 +61,6 @@ def main(argv: list[str] | None = None) -> int:
     folder.add_argument("--chunk-size", type=int, default=1200)
     folder.add_argument("--overlap", type=int, default=200)
     folder.add_argument("--embedder", choices=vector.EMBEDDERS, default="fake")
-    # Sin --index se usa PostgreSQL con recuperación vectorial (DATABASE_URL).
     lookup = commands.add_parser("search", help="Buscar fragmentos con referencia de origen")
     lookup.add_argument("--index", type=Path)
     lookup.add_argument("--query", required=True)
@@ -70,7 +68,7 @@ def main(argv: list[str] | None = None) -> int:
     lookup.add_argument("--subject")
     lookup.add_argument("--topic")
     lookup.add_argument("--limit", type=int, default=5)
-    ask = commands.add_parser("ask", help="Responder con citas usando solo el índice")
+    ask = commands.add_parser("ask", help="Responder con citas verificadas usando solo el corpus")
     ask.add_argument("--index", type=Path)
     ask.add_argument("--question", required=True)
     ask.add_argument("--year", type=int, choices=range(1, 5))
@@ -87,9 +85,10 @@ def main(argv: list[str] | None = None) -> int:
         command.add_argument("--embedder", choices=vector.EMBEDDERS, default="fake")
     args = parser.parse_args(argv)
     try:
-        if args.command in ("search", "ask", "eval") and args.index is None:
-            session = database_session()
-            args.index = partial(vector.search, session, embedder=vector.EMBEDDERS[args.embedder])
+        if args.command in ("search", "ask", "eval"):
+            embedder = vector.EMBEDDERS[args.embedder]
+            # Sin --index se usa PostgreSQL con recuperación vectorial (DATABASE_URL).
+            source = args.index or database_session()
         if args.command == "sample":
             from app.rag.sample import create_sample
 
@@ -108,19 +107,26 @@ def main(argv: list[str] | None = None) -> int:
             result = ingest_folder(args.folder, settings, vector.EMBEDDERS[args.embedder])
         elif args.command == "ask":
             result = answer_question(
-                args.index,
+                source,
                 args.question,
                 PROVIDERS[args.provider],
+                embedder=embedder,
                 year=args.year,
                 subject=args.subject,
                 topic=args.topic,
             )
         elif args.command == "eval":
             questions = json.loads(args.golden.read_text(encoding="utf-8"))
-            result = evaluate(args.index, questions, PROVIDERS[args.provider])
-        elif not isinstance(args.index, Path):
-            result = args.index(
-                args.query, year=args.year, subject=args.subject, topic=args.topic, limit=args.limit
+            result = evaluate(source, questions, PROVIDERS[args.provider], embedder)
+        elif args.index is None:
+            result = vector.search(
+                source,
+                args.query,
+                embedder,
+                year=args.year,
+                subject=args.subject,
+                topic=args.topic,
+                limit=args.limit,
             )
         else:
             result = search(

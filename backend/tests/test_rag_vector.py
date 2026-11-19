@@ -11,10 +11,11 @@ from sqlalchemy.orm import Session
 from test_models import BACKEND, TEST_DATABASE_URL, alembic_config
 from test_rag_answer import GOLDEN
 
-from app.models import Chunk, Document
+from app.models import Chunk, Document, DocumentStatus
 from app.rag import vector
 from app.rag.__main__ import ingest_folder, main
-from app.rag.answer import answer_question, evaluate
+from app.rag.answer import NOT_FOUND, answer_question, evaluate, retrieve
+from app.rag.citations import db_sources
 from app.rag.ingestion import ChunkSettings, DocumentMetadata, extract_pdf
 from app.rag.sample import create_sample
 
@@ -64,25 +65,52 @@ def test_real_embedder_batches_and_checks_dimension(monkeypatch):
         vector.openai_compatible_embedder(["x"])
 
 
-def test_answer_uses_retriever_callable():
-    passage = {
-        "chunk_id": "c1",
-        "document_id": "doc",
-        "title": "Doc",
-        "page_number": 2,
-        "text": "La biblioteca conserva un catálogo.",
-    }
+def test_vector_neighbours_need_a_shared_term_or_a_close_distance(monkeypatch):
+    def passage(chunk_id, text, score):
+        return {"chunk_id": chunk_id, "text": text, "score": score}
+
+    hits = [
+        passage("lexico", "La biblioteca conserva un catálogo.", 0.9),
+        passage("cercano", "Fondo documental custodiado.", 0.3),
+        passage("lejano", "Rúbrica de colores.", 0.7),
+    ]
     calls = []
 
-    def retriever(question, **filters):
-        calls.append((question, filters))
-        return [passage]
+    def search(session, question, embedder, **filters):
+        calls.append((session, question, embedder, filters))
+        return hits
 
-    result = answer_question(retriever, "¿Qué conserva la biblioteca?", year=1)
-    assert result["supported"] and result["citations"][0]["page"] == 2
+    monkeypatch.setattr(vector, "search", search)
+    monkeypatch.setenv("ATENEO_MAX_DISTANCE", "0.5")
+    kept = retrieve(
+        "sesión",
+        "¿Qué conserva la biblioteca?",
+        vector.fake_embedder,
+        year=1,
+        subject=None,
+        topic=None,
+        limit=5,
+    )
+    assert [p["chunk_id"] for p in kept] == ["lexico", "cercano"]
     assert calls == [
-        ("¿Qué conserva la biblioteca?", {"year": 1, "subject": None, "topic": None, "limit": 5})
+        (
+            "sesión",
+            "¿Qué conserva la biblioteca?",
+            vector.fake_embedder,
+            {"year": 1, "subject": None, "topic": None, "limit": 5},
+        )
     ]
+    monkeypatch.setenv("ATENEO_MAX_DISTANCE", "3")
+    with pytest.raises(ValueError):
+        retrieve(
+            "sesión",
+            "biblioteca",
+            vector.fake_embedder,
+            year=None,
+            subject=None,
+            topic=None,
+            limit=5,
+        )
 
 
 def test_cli_without_index_requires_database_url(monkeypatch, capsys):
@@ -109,11 +137,24 @@ def test_postgres_ingestion_reindex_and_vector_search(monkeypatch, tmp_path):
         ]
 
         with Session(engine) as session:
-            retrieve = partial(vector.search, session, embedder=vector.fake_embedder)
-            report = evaluate(retrieve, json.loads(GOLDEN.read_text(encoding="utf-8")))
+            report = evaluate(session, json.loads(GOLDEN.read_text(encoding="utf-8")))
             assert report["passed"] == report["total"], [
                 r for r in report["results"] if not r["passed"]
             ]
+            cited = report["results"][0]["citations"][0]
+            [source] = db_sources(session, [cited["chunk_id"]]).values()
+            assert source["page_text"][cited["start"] : cited["end"]] == cited["quote"]
+
+            # Fuera del corpus: los vecinos sin relación se descartan antes del modelo.
+            def provider(system, user):
+                raise AssertionError("no debe llamarse sin fragmentos relevantes")
+
+            for question in ("¿Cuál es la capital de Francia?", "¿Qué dice sobre la usucapión?"):
+                assert vector.search(session, question, vector.fake_embedder)
+                result = answer_question(session, question, provider)
+                assert (result["status"], result["answer"]) == ("no_evidence", NOT_FOUND)
+
+            retrieve = partial(vector.search, session, embedder=vector.fake_embedder)
             [hit] = retrieve("azafrán", limit=1)
             assert (hit["document_id"], hit["page_number"], hit["page_label"]) == (
                 "muestra-a",
@@ -138,6 +179,10 @@ def test_postgres_ingestion_reindex_and_vector_search(monkeypatch, tmp_path):
             rows = session.scalars(select(Chunk.id).where(Chunk.document_id == "muestra-b")).all()
             assert sorted(rows) == sorted(c.chunk_id for c in document.chunks)
             assert session.get(Document, "muestra-b").chunk_settings["max_chars"] == 60
+            # Una cita de la versión anterior deja de verificarse.
+            stale = report["results"][2]["citations"][0]
+            assert stale["document_id"] == "muestra-b"
+            assert db_sources(session, [stale["chunk_id"]]) == {}
             session.rollback()
 
             # Un fallo al escribir conserva la versión anterior.
@@ -147,6 +192,12 @@ def test_postgres_ingestion_reindex_and_vector_search(monkeypatch, tmp_path):
             session.rollback()
             count = select(func.count()).select_from(Chunk).where(Chunk.document_id == "muestra-b")
             assert session.scalar(count) == len(document.chunks)
+
+            # Retirar un documento invalida sus citas.
+            session.get(Document, "muestra-a").status = DocumentStatus.RETIRED
+            session.flush()
+            assert db_sources(session, [cited["chunk_id"]]) == {}
+            session.rollback()
     finally:
         engine.dispose()
         command.downgrade(config, "base")

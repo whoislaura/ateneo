@@ -19,7 +19,7 @@ Todo error de `/api/v1` usa la misma forma:
 {"error": {"code": "validation_error", "message": "Solicitud inválida.", "details": [...]}}
 ```
 
-`code` es estable y legible por máquina; `message` se puede mostrar; `details` es opcional (en 422 contiene la lista de campos inválidos de FastAPI con `loc`, `msg` y `type`). Códigos usados: 401 `unauthorized`, 403 `forbidden`, 404 `not_found`, 409 `conflict`, 422 `validation_error`, 501 `not_implemented`. Cambiar esta forma exige una nueva versión de la API (`/api/v2`).
+`code` es estable y legible por máquina; `message` se puede mostrar; `details` es opcional (en 422 contiene la lista de campos inválidos de FastAPI con `loc`, `msg` y `type`). Códigos usados: 401 `unauthorized`, 403 `forbidden`, 404 `not_found`, 409 `conflict`, 422 `validation_error`, 501 `not_implemented`, 503 `service_unavailable` (el proveedor de IA o de embeddings falló o está mal configurado; no se guarda nada). Cambiar esta forma exige una nueva versión de la API (`/api/v2`).
 
 ## Roles
 
@@ -29,7 +29,7 @@ Todo error de `/api/v1` usa la misma forma:
 | Profesor | `teacher` | Lo anterior y gestión del corpus (subir, actualizar, retirar, ver retirados). |
 | Administrador | `admin` | Gestión del corpus (incluidos retirados) y envío de feedback. |
 
-Cada usuario tiene un único rol. Sin sesión válida: 401. Sin permiso: 403. Recurso de otro usuario (respuesta, examen): 404, para no revelar su existencia. Los permisos de la tabla de endpoints ya se aplican (dependencia `require_roles` en `backend/app/auth.py`): los stubs responden 401/403 antes del 501. Las rutas «Autor» solo exigen sesión; la comprobación de autoría corresponde a la tarea que las implemente.
+Cada usuario tiene un único rol. Sin sesión válida: 401. Sin permiso: 403. Recurso de otro usuario (respuesta, examen): 404, para no revelar su existencia. Los permisos de la tabla de endpoints ya se aplican (dependencia `require_roles` en `backend/app/auth.py`): los stubs responden 401/403 antes del 501. Las rutas «Autor» solo exigen sesión; la comprobación de autoría corresponde a la tarea que las implemente (`GET /answers/{answer_id}` ya la aplica: 404 si no existe o es de otro usuario, también para Administrador).
 
 ## Autenticación (CU-00, AT-08)
 
@@ -79,6 +79,14 @@ Toda respuesta de CU-01 y CU-02 es un `AnswerOut` con `status`:
 - `answered`: `content` contiene marcas `[n]` y `citations` tiene al menos una cita; cada marca corresponde a `position`.
 - `no_evidence`: el corpus no respalda una respuesta; `content` lo explica y `citations` está vacío.
 
+### Consulta (CU-01, AT-09)
+
+`POST /queries` recibe `question` y los filtros opcionales `year`, `subject` y `topic` (se recortan espacios; asignatura y tema se comparan sin distinguir mayúsculas). Un filtro sin documentos no es un error: devuelve `no_evidence`. Se recupera de los documentos no retirados con pgvector, se genera la respuesta, se validan las citas (abajo) y, en una sola transacción, se guardan la respuesta, sus citas como copia y una entrada de historial `query`. La respuesta se puede reabrir con `GET /answers/{answer_id}`.
+
+El proveedor se elige por entorno: `ATENEO_LLM_PROVIDER` (`fake` por defecto, `openai`) y `ATENEO_EMBEDDER` (`fake` por defecto, `openai`; debe ser el mismo que indexó el corpus). Las variables de cada proveedor están en el [prototipo RAG](rag-prototype.md). Pruebas y CI usan siempre `fake`. Un fallo del proveedor devuelve 503 sin guardar nada.
+
+El RAG se invoca solo a través de `app.query.ask`, que devuelve `status`, `answer` con marcas `[n]` y `citations` con `document_id`, `title`, `version`, `page`, `start`, `end`, `quote` y `chunk_id`, donde `[n]` remite a la cita n.
+
 El esquema rechaza cualquier otra combinación. Cada respuesta de examen exige también al menos una cita.
 
 ```json
@@ -99,6 +107,15 @@ El esquema rechaza cualquier otra combinación. Cada respuesta de examen exige t
 Una cita es válida si `quote == texto_de_página[start:end]`, para la página física `page_number` de la versión `document_version`. `start`/`end` son offsets de caracteres sobre el texto normalizado de la página, con final exclusivo, igual que en la [ingestión](ingestion.md). `page_number` es la página física desde 1; `page_label` es la etiqueta impresa solo si el PDF la incorpora. El backend valida esta igualdad antes de guardar o devolver una cita (AT-12, AT-16); el visor (AT-21) la comprueba con `GET /documents/{id}/pages/{n}` mientras la versión vigente coincida.
 
 La cita se guarda como copia: documento, título, versión, página y texto citado. Así el historial conserva referencias comprobables aunque el documento se reindexe o retire; `chunk_id` pasa a nulo cuando su fragmento deja de existir.
+
+### Validación de citas (AT-12)
+
+`app.citations.validate` se aplica a todo resultado de CU-01 (y servirá para CU-02) antes de guardarlo o devolverlo:
+
+1. Una cita se descarta si su documento no existe, está retirado o su versión no es la vigente; si la página no existe; si `start`/`end` no son enteros con `0 <= start < end`; o si `quote` está vacía o difiere de `pages.text[start:end]`.
+2. Título del documento y etiqueta de página se copian de la base, no del modelo. `chunk_id` pasa a nulo si el fragmento no existe en ese documento y página.
+3. Las marcas `[n]` de citas descartadas o inexistentes se eliminan del texto; las citas válidas sin marca se descartan. Las restantes se renumeran `1..k` por orden de aparición.
+4. Si no queda ninguna cita, la respuesta pasa a `no_evidence` con `content` = `No encontrado en el corpus.`, sin el texto generado.
 
 ## Modelo de datos
 
@@ -136,6 +153,8 @@ uv run --frozen alembic upgrade head
 `backend/tests/test_contract.py` comprueba que OpenAPI describe todas las rutas, el formato de error, las reglas de citas y feedback y la compatibilidad con la salida de la ingestión. `backend/tests/test_models.py` genera el SQL de la migración sin base de datos; si `ATENEO_TEST_DATABASE_URL` apunta a una base PostgreSQL desechable, además aplica la migración, compara el esquema con los modelos y la revierte. CI no dispone de PostgreSQL para el job de backend, por lo que esa parte se omite allí.
 
 `backend/tests/test_auth.py` prueba login, sesión, logout, expiración, credenciales erróneas sin enumeración, la matriz de roles y el comando de alta con usuarios y sesiones en SQLite en memoria (`dependency_overrides`), sin PostgreSQL.
+
+`backend/tests/test_queries.py` prueba CU-01 y la validación de citas en SQLite en memoria, sustituyendo solo la recuperación pgvector por una falsa; con `ATENEO_TEST_DATABASE_URL` además recorre la consulta completa con la muestra indexada en PostgreSQL.
 
 ## Pendiente
 

@@ -27,6 +27,24 @@ SCHEMA = (
 )
 
 
+# shortcut: lista mínima de palabras vacías; sustituir al evaluar con preguntas reales.
+STOPWORDS = frozenset(
+    """a al algo como con cual cuales cuando de del donde el en es esta este esto la las
+    lo los mas para por que quien se segun si sobre son su sus un una uno unos y o ya
+    hay dice dicen describe menciona corpus documento texto""".split()
+)
+
+
+def fold(text: str) -> str:
+    decomposed = unicodedata.normalize("NFKD", text.casefold())
+    return "".join(char for char in decomposed if not unicodedata.combining(char))
+
+
+def content_terms(text: str) -> list[str]:
+    words = re.findall(r"[^\W_]+", fold(text))
+    return list(dict.fromkeys(word for word in words if word not in STOPWORDS))
+
+
 def metadata_key(value: str) -> str:
     return unicodedata.normalize("NFC", value).strip().casefold()
 
