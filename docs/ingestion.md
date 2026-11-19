@@ -73,11 +73,42 @@ SQLite FTS5, incluido en el Python utilizado en desarrollo y comprobado en CI. U
 
 La extracción completa ocurre antes de abrir la transacción de escritura. Se reemplazan juntos los metadatos, páginas y fragmentos del identificador recibido. Un error conserva la versión anterior y los demás documentos. El índice mantiene solo la versión actual; no reemplaza el historial académico CU-04 que corresponde al backend. No se reutilizan archivos SQLite ajenos ni esquemas de muestra incompatibles.
 
+## Indexación en PostgreSQL con embeddings (AT-14)
+
+`app.rag.vector` guarda la misma salida de ingestión en las tablas `documents`, `pages` y `chunks` del modelo de AT-02 (migraciones Alembic aplicadas), con un embedding por fragmento.
+
+```powershell
+Set-Location backend
+$env:DATABASE_URL = "postgresql+psycopg://ateneo:<clave>@localhost:5432/ateneo"
+uv run --frozen alembic upgrade head
+uv run --frozen python -m app.rag sample --output ../data/sample
+uv run --frozen python -m app.rag ingest-dir --folder ../data/sample
+uv run --frozen python -m app.rag search --query azafran
+uv run --frozen python -m app.rag ask --question "¿Cuál es el término exclusivo?" --year 4
+uv run --frozen python -m app.rag eval
+```
+
+- `ingest-dir` procesa cada `*.pdf` de la carpeta con su `.json` de metadatos homónimo. Admite `--chunk-size`, `--overlap` y `--embedder`. Devuelve un informe por documento; los fallidos aparecen con `status: error`, no detienen el resto y el código de salida es 1.
+- `search`, `ask` y `eval` usan PostgreSQL cuando no se indica `--index`; con `--index` siguen usando el índice SQLite.
+- Reindexar sustituye en una transacción páginas y fragmentos de la versión vigente, como en SQLite. La fila de `documents` se actualiza en lugar de borrarse, para conservar autoría, fecha de creación e historial. Los embeddings se calculan antes de abrir la transacción: un fallo del proveedor o de escritura conserva la versión anterior. Las citas guardadas mantienen su copia (su `chunk_id` pasa a NULL).
+- Recuperación: distancia coseno de pgvector, ascendente, desempate por identificador, máximo cinco resultados, con el mismo formato que el índice SQLite (`score` es la distancia). Excluye documentos `retired` y vectores de otra dimensión. Filtros de año exacto y asignatura/tema sin distinguir mayúsculas ni espacios extremos. Siempre devuelve los vecinos más cercanos aunque sean poco relevantes; el rechazo depende del modelo y de la verificación de citas. No hay ranking híbrido.
+
+### Proveedores de embeddings
+
+| Nombre | Uso |
+|---|---|
+| `fake` | Determinista, sin red ni claves: bolsa de términos con hashing. Es el que usan pruebas y CI; no mide calidad semántica. |
+| `openai` | Cualquier endpoint `/embeddings` compatible con OpenAI, en lotes de 64 textos. |
+
+Variables, solo en el entorno local (nunca en Git): `ATENEO_EMBED_DIM` (dimensión, por defecto 256; se valida contra la respuesta del modelo), `ATENEO_EMBED_API_KEY` y `ATENEO_EMBED_MODEL` (obligatorias para `openai`), `ATENEO_EMBED_BASE_URL` (opcional, por defecto `https://api.openai.com/v1`).
+
+**El modelo de embeddings sigue sin decidir.** Por eso la columna `chunks.embedding` no tiene dimensión fija ni índice ANN y la búsqueda es exacta (recorrido completo), suficiente para la muestra. Al elegir modelo hay que fijar `ATENEO_EMBED_DIM`, añadir una migración con `vector(N)` e índice HNSW (`vector_cosine_ops`) y reindexar todo el corpus con ese modelo; consulta e indexación deben usar el mismo.
+
 ## Límites y revisión del material
 
 - No hay OCR. `no_text` puede significar página vacía, imagen o contenido que el extractor no interpreta. Un PDF parcialmente legible se indexa con advertencias; uno enteramente sin texto se rechaza.
 - Los PDFs cifrados o dañados se rechazan con un error. No se solicitan ni almacenan contraseñas.
-- No hay embeddings. La generación con citas verificadas sobre este índice está en el [prototipo RAG](rag-prototype.md).
+- El índice SQLite no tiene embeddings; la indexación vectorial en PostgreSQL se describe abajo. La generación con citas verificadas está en el [prototipo RAG](rag-prototype.md).
 - Los documentos se procesan en memoria. Esta herramienta CLI es para muestras controladas. Límites de tamaño, aislamiento del parser y procesamiento de archivos subidos se definirán al integrarla con CU-03.
 - PDFs, metadatos de muestra e índices generados se guardan bajo `data/`, fuera de Git. El generador y sus pruebas sí se versionan. ReportLab es dependencia de desarrollo; la extracción solo necesita pypdf.
 
@@ -89,6 +120,8 @@ Desde la raíz:
 uv run --frozen --project backend ruff check backend infra/smoke.py
 uv run --frozen --project backend pytest backend/tests
 ```
+
+Para incluir las pruebas contra PostgreSQL/pgvector, definir `ATENEO_TEST_DATABASE_URL` con una base desechable: crean y eliminan todas las tablas.
 
 Las pruebas cubren extracción, etiquetas, caracteres españoles, cobertura y solapamiento, filtros, reingestión, rollback, errores y recorrido CLI completo. CI las ejecuta con las comprobaciones existentes de frontend y contenedores.
 

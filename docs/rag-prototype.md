@@ -1,10 +1,10 @@
 # Prototipo RAG restringido al corpus — Sprint 0
 
-Esta entrega implementa AT-04 (issue #4) sobre el índice textual de [ingestión](ingestion.md). Es un prototipo de línea de comandos en `app.rag.answer`; no añade endpoints ni embeddings (pgvector corresponde a una tarea posterior).
+Esta entrega implementa AT-04 (issue #4) sobre el índice textual de [ingestión](ingestion.md). Es un prototipo de línea de comandos en `app.rag.answer`; no añade endpoints. Desde AT-14 también puede recuperar por embeddings en PostgreSQL/pgvector (ver [indexación en PostgreSQL](ingestion.md#indexación-en-postgresql-con-embeddings-at-14)).
 
 ## Flujo
 
-1. **Recuperación.** Se eliminan palabras vacías de la pregunta y se buscan los términos restantes en el índice SQLite FTS5 (máximo cinco fragmentos), con los filtros opcionales de año, asignatura y tema.
+1. **Recuperación.** Se eliminan palabras vacías de la pregunta y se buscan los términos restantes en el índice SQLite FTS5 (máximo cinco fragmentos), con los filtros opcionales de año, asignatura y tema. Sin `--index` y con `DATABASE_URL`, se busca la pregunta completa por similitud coseno en pgvector (`--embedder fake|openai`); `answer_question` acepta para ello una función de recuperación en lugar de la ruta del índice.
 2. **Rechazo sin soporte.** Si no quedan términos o no hay fragmentos, la respuesta es `No encontrado en el corpus.` y no se llama al modelo.
 3. **Generación.** El prompt de sistema (`SYSTEM_PROMPT`) exige responder en español solo con los fragmentos, citar cada afirmación como `[documento, p. N]` y responder `No encontrado en el corpus.` si no hay base. Cada fragmento se entrega con ese encabezado de cita.
 4. **Verificación de citas.** Cada cita de la respuesta se compara con los pares documento/página recuperados. Las citas que no corresponden se eliminan del texto y se listan en `invalid_citations`. Una respuesta sin ninguna cita válida se sustituye por `No encontrado en el corpus.`
@@ -54,7 +54,8 @@ Con el corpus oficial, el set debe sustituirse por preguntas revisadas por docen
 
 ## Límites
 
-- La recuperación es léxica (BM25, términos unidos por OR): basta un término coincidente para pasar fragmentos al modelo. El rechazo posterior depende del modelo y de la verificación de citas.
+- La recuperación vectorial siempre devuelve vecinos, aunque la pregunta esté fuera del corpus; igual que en el caso léxico, el rechazo depende del modelo y de la verificación de citas.
+- La recuperación SQLite es léxica (BM25, términos unidos por OR): basta un término coincidente para pasar fragmentos al modelo. El rechazo posterior depende del modelo y de la verificación de citas.
 - La verificación comprueba que la cita exista entre los fragmentos recuperados, no que el fragmento respalde la afirmación.
 - Las citas solo se reconocen con el formato `[documento, p. N]`; otros formatos cuentan como respuesta sin cita.
 - El proveedor `fake` no mide calidad de respuesta; solo verifica el recorrido completo.

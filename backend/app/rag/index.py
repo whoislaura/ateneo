@@ -95,9 +95,13 @@ def index_document(path: Path, document: Document) -> dict:
                     for c in document.chunks
                 ],
             )
+    return document_report(document)
+
+
+def document_report(document: Document) -> dict:
     missing = [page.number for page in document.pages if page.status == "no_text"]
     return {
-        "document_id": identifier,
+        "document_id": document.metadata.document_id,
         "version": document.version,
         "status": "partial" if missing else "indexed",
         "pages": len(document.pages),

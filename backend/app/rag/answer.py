@@ -32,6 +32,8 @@ STOPWORDS = frozenset(
 )
 
 Provider = Callable[[str, str], str]
+# Alternativa al índice SQLite: (pregunta, year=, subject=, topic=, limit=) -> fragmentos.
+Retriever = Callable[..., list[dict]]
 
 
 def fold(text: str) -> str:
@@ -113,7 +115,7 @@ def verify_citations(answer: str, passages: list[dict]) -> tuple[str, list[dict]
 
 
 def answer_question(
-    index: Path,
+    index: Path | Retriever,
     question: str,
     provider: Provider = fake_provider,
     *,
@@ -123,11 +125,13 @@ def answer_question(
     limit: int = 5,
 ) -> dict:
     terms = content_terms(question)
-    passages = (
-        search(index, " ".join(terms), year=year, subject=subject, topic=topic, limit=limit)
-        if terms
-        else []
-    )
+    filters = {"year": year, "subject": subject, "topic": topic, "limit": limit}
+    if not terms:
+        passages = []
+    elif isinstance(index, Path):
+        passages = search(index, " ".join(terms), **filters)
+    else:
+        passages = index(question, **filters)
     result = {"question": question, "answer": NOT_FOUND, "citations": [], "invalid_citations": []}
     if not passages:
         return result | {"supported": False}
@@ -143,7 +147,9 @@ def answer_question(
     }
 
 
-def evaluate(index: Path, golden: list[dict], provider: Provider = fake_provider) -> dict:
+def evaluate(
+    index: Path | Retriever, golden: list[dict], provider: Provider = fake_provider
+) -> dict:
     """Ejecuta las preguntas doradas; una pregunta sin fuentes esperadas debe rechazarse."""
     results = []
     for item in golden:

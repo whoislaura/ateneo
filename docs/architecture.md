@@ -14,7 +14,7 @@ FastAPI genera OpenAPI en `/openapi.json` y documentación en `/docs` cuando se 
 
 ## Contrato API y modelo de datos
 
-El contrato `/api/v1` y el modelo PostgreSQL de usuarios/roles, documentos, páginas, chunks, citas, historial, exámenes y feedback están descritos en [contrato API](api-contract.md). Laura y Ray lo revisan antes de implementar integraciones. Las rutas responden 501 hasta su tarea de Sprint 1 o 2. El esquema se crea con migraciones Alembic en `backend/migrations/`. No se fija aún proveedor IA, modelo de embeddings ni dimensión vectorial; la columna de embeddings queda sin dimensión hasta AT-14. La estrategia inicial de chunking y su índice textual de muestra están descritos en [ingestión](ingestion.md).
+El contrato `/api/v1` y el modelo PostgreSQL de usuarios/roles, documentos, páginas, chunks, citas, historial, exámenes y feedback están descritos en [contrato API](api-contract.md). Laura y Ray lo revisan antes de implementar integraciones. Las rutas responden 501 hasta su tarea de Sprint 1 o 2. El esquema se crea con migraciones Alembic en `backend/migrations/`. No se fija aún proveedor IA, modelo de embeddings ni dimensión vectorial; la columna de embeddings queda sin dimensión hasta elegir el modelo; AT-14 la configura con `ATENEO_EMBED_DIM` (ver [ingestión](ingestion.md)). La estrategia inicial de chunking y su índice textual de muestra están descritos en [ingestión](ingestion.md).
 
 ## Contenedores
 
