@@ -83,21 +83,6 @@ def test_openapi_describes_whole_contract():
 @pytest.mark.parametrize(
     ("method", "path", "kwargs"),
     [
-        ("get", "/api/v1/documents/muestra-a/pages/1", {}),
-        (
-            "post",
-            "/api/v1/documents",
-            {
-                "data": {
-                    "document_id": "a",
-                    "title": "T",
-                    "year": "2",
-                    "subject": "S",
-                    "topic": "T",
-                },
-                "files": {"file": ("a.pdf", b"%PDF", "application/pdf")},
-            },
-        ),
         ("post", "/api/v1/feedback", {"json": {"kind": "rating", "rating": 5}}),
     ],
 )

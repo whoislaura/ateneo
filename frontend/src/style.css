@@ -57,3 +57,11 @@ th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #bcc9c0; }
 .viewer dd { margin: 0; overflow-wrap: anywhere; }
 .page { white-space: pre-wrap; max-height: 24rem; overflow-y: auto; margin-top: 12px; padding: 12px; background: #fff; border: 1px solid #bcc9c0; border-radius: 4px; line-height: 1.6; }
 mark { background: #f3d9a4; color: inherit; }
+
+fieldset.plain { border: 0; padding: 0; margin: 0; min-width: 0; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+button.secondary { background: none; color: inherit; border: 1px solid #8a9a92; }
+progress { width: 100%; max-width: 640px; }
+dialog { max-width: min(480px, calc(100vw - 32px)); border: 1px solid #bcc9c0; border-radius: 6px; padding: 16px 24px; color: inherit; background: #fbfaf6; }
+dialog::backdrop { background: rgb(23 62 59 / .4); }
+dialog h2 { margin-top: 0; }

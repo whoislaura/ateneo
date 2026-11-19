@@ -133,7 +133,11 @@ class DocumentReplace(DocumentFields):
 class DocumentUpload(DocumentReplace):
     """Formulario multipart de CU-03 (subir)."""
 
-    document_id: Text = Field(description="Identificador estable proporcionado por el operador.")
+    # Va en las rutas /documents/{document_id}: sin barras, espacios ni caracteres a codificar.
+    document_id: Text = Field(
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$",
+        description="Identificador estable proporcionado por el operador.",
+    )
 
 
 class DocumentOut(DocumentFields):

@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.rag import index, vector
 from app.rag.citations import db_sources, sqlite_sources, verify_citations
 from app.rag.index import content_terms
+from app.rag.rotation import rotating
 
 NOT_FOUND = "No encontrado en el corpus."
 
@@ -54,11 +55,14 @@ def fake_provider(system: str, user: str) -> str:
     return best
 
 
-def openai_compatible_provider(system: str, user: str) -> str:
-    """API de chat compatible con OpenAI; la clave solo se lee del entorno."""
-    key, model = os.environ.get("ATENEO_LLM_API_KEY"), os.environ.get("ATENEO_LLM_MODEL")
+def openai_compatible_provider(system: str, user: str, key: str | None = None) -> str:
+    """API de chat compatible con OpenAI; la clave viene del entorno (o de `rotation`)."""
+    key, model = key or os.environ.get("ATENEO_LLM_API_KEY"), os.environ.get("ATENEO_LLM_MODEL")
     if not key or not model:
-        raise ValueError("Definir ATENEO_LLM_API_KEY y ATENEO_LLM_MODEL para el proveedor real.")
+        raise ValueError(
+            "Definir ATENEO_LLM_API_KEY (o ATENEO_LLM_API_KEYS) y ATENEO_LLM_MODEL "
+            "para el proveedor real."
+        )
     base_url = os.environ.get("ATENEO_LLM_BASE_URL", "https://api.openai.com/v1").rstrip("/")
     payload = {
         "model": model,
@@ -74,7 +78,10 @@ def openai_compatible_provider(system: str, user: str) -> str:
         return json.load(response)["choices"][0]["message"]["content"]
 
 
-PROVIDERS: dict[str, Provider] = {"fake": fake_provider, "openai": openai_compatible_provider}
+PROVIDERS: dict[str, Provider] = {
+    "fake": fake_provider,
+    "openai": rotating(openai_compatible_provider, "ATENEO_LLM"),
+}
 
 
 def retrieve(
@@ -157,11 +164,24 @@ def answer_question(
         return result
     # Las marcas [n] del contrato solo las pone el backend.
     reply = re.sub(r"\[\d+\]", "", provider(SYSTEM_PROMPT, build_prompt(question, passages)))
+    return result | cite_reply(source, passages, reply)
+
+
+def cite_reply(
+    source: Path | Session,
+    passages: list[dict],
+    reply: str,
+    claim: Callable[[str, int], str] = claim_before,
+) -> dict:
+    """Resuelve las marcas [Fn] de `reply` en citas verificadas y las renumera [n] (CU-01, CU-02).
+
+    Devuelve `invalid_citations` y, si queda alguna cita válida, `status`, `answer` y `citations`.
+    """
     candidates, invalid = {}, []
     for match in MARKER.finditer(reply):
         number = int(match.group(1))
         if 1 <= number <= len(passages):
-            citation = quote_citation(passages[number - 1], claim_before(reply, match.start()))
+            citation = quote_citation(passages[number - 1], claim(reply, match.start()))
             candidates[match.start()] = citation
         else:
             invalid.append({"marker": match.group(0), "reason": "Fragmento no recuperado."})
@@ -180,7 +200,7 @@ def answer_question(
         return f"[{positions.setdefault(key, len(positions) + 1)}]"
 
     content = re.sub(r"[ \t]+([.,;:])", r"\1", MARKER.sub(renumber, reply)).strip()
-    result["invalid_citations"] = invalid + rejected
+    result = {"invalid_citations": invalid + rejected}
     if not positions or NOT_FOUND.casefold() in content.casefold():
         return result
     return result | {

@@ -4,7 +4,8 @@ import json
 import os
 import subprocess
 import sys
-from urllib.request import urlopen
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
 
 
 def main():
@@ -15,6 +16,18 @@ def main():
     with urlopen(f"{base_url}/api/v1/health", timeout=10) as response:
         assert response.status == 200
         assert json.load(response) == {"status": "ok"}
+    # Un 401 JSON (no 500) prueba que la API llega a la base y que las migraciones corrieron.
+    login = Request(
+        f"{base_url}/api/v1/auth/login",
+        data=json.dumps({"email": "smoke@example.com", "password": "no-existe"}).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        urlopen(login, timeout=10)
+        raise AssertionError("el login con credenciales falsas no devolvió 401")
+    except HTTPError as error:
+        assert error.code == 401, f"login devolvió {error.code}, se esperaba 401"
+        assert json.load(error)["error"]["code"] == "unauthorized"
     command = ["docker", "compose"]
     if env_file := os.environ.get("COMPOSE_ENV_FILE"):
         command += ["--env-file", env_file]
@@ -27,7 +40,7 @@ def main():
     ]
     result = subprocess.run(command, check=True, text=True, capture_output=True)
     assert result.stdout.strip() == "vector", "pgvector no está habilitado"
-    print("Smoke OK: web, API y pgvector disponibles.")
+    print("Smoke OK: web, API, base migrada (login 401) y pgvector disponibles.")
 
 
 if __name__ == "__main__":

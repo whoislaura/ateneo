@@ -7,17 +7,6 @@ export interface Asignatura {
   temas: string[]
 }
 
-export type GenerationType = 'resumen' | 'esquema' | 'cuadro' | 'diagrama'
-
-export interface CorpusDocument {
-  id: string
-  titulo: string
-  anio: number
-  asignatura: string
-  tema: string
-  paginas: number
-  estado: 'procesado' | 'pendiente' | 'retirado'
-}
 
 export interface HistoryEntry {
   id: string
@@ -51,23 +40,11 @@ function cita(position: number, page: number, quote: string): Citation {
   }
 }
 
-export const sampleCitations: Citation[] = [
+const sampleCitations: Citation[] = [
   cita(1, 12, 'Son fuentes del derecho la costumbre, la ley, el plebiscito, el senadoconsulto, el edicto y la respuesta de los prudentes…'),
   cita(2, 15, 'Durante el Principado, la voluntad del príncipe expresada en constituciones adquiere fuerza de ley…'),
 ]
 
-export const sampleGenerations: Record<GenerationType, string> = {
-  resumen: 'Las fuentes del Derecho Romano evolucionan de la costumbre a la ley escrita y, más tarde, a las constituciones imperiales.',
-  esquema: '1. Fuentes\n   1.1 Costumbre\n   1.2 Leyes y plebiscitos\n   1.3 Senadoconsultos\n   1.4 Edictos\n   1.5 Jurisprudencia\n2. Constituciones imperiales',
-  cuadro: 'Fuente            | Órgano             | Época\n------------------|--------------------|-----------\nLey               | Comicios           | República\nSenadoconsulto    | Senado             | República\nConstitución      | Emperador          | Principado',
-  diagrama: 'Costumbre → Ley escrita → Edictos → Constituciones imperiales',
-}
-
-export const corpus: CorpusDocument[] = [
-  { id: 'doc-1', titulo: manual, anio: 1, asignatura: 'Derecho Romano', tema: 'Fuentes del Derecho Romano', paginas: 42, estado: 'procesado' },
-  { id: 'doc-2', titulo: 'Lecturas de Teoría del Estado (muestra)', anio: 1, asignatura: 'Teoría del Estado', tema: 'El Estado', paginas: 30, estado: 'pendiente' },
-  { id: 'doc-3', titulo: 'Apuntes de Derecho Penal (muestra)', anio: 3, asignatura: 'Derecho Penal', tema: 'El delito', paginas: 25, estado: 'retirado' },
-]
 
 export const history: HistoryEntry[] = [
   { id: 'h-1', fecha: '2026-11-18 10:42', accion: 'consulta', resumen: '¿Cuáles son las fuentes del Derecho Romano?' },

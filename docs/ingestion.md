@@ -109,7 +109,7 @@ Variables, solo en el entorno local (nunca en Git): `ATENEO_MAX_DISTANCE` (umbra
 - No hay OCR. `no_text` puede significar página vacía, imagen o contenido que el extractor no interpreta. Un PDF parcialmente legible se indexa con advertencias; uno enteramente sin texto se rechaza.
 - Los PDFs cifrados o dañados se rechazan con un error. No se solicitan ni almacenan contraseñas.
 - El índice SQLite no tiene embeddings; la indexación vectorial en PostgreSQL se describe abajo. La generación con citas verificadas está en el [prototipo RAG](rag-prototype.md).
-- Los documentos se procesan en memoria. Esta herramienta CLI es para muestras controladas. Límites de tamaño, aislamiento del parser y procesamiento de archivos subidos se definirán al integrarla con CU-03.
+- Los documentos se procesan en memoria. Las subidas de CU-03 limitan el tamaño (`ATENEO_MAX_UPLOAD_MB`) y exigen cabecera PDF; ver [gestión del corpus](api-contract.md#gestión-del-corpus-cu-03-at-10-at-18). El parser no se ejecuta aislado.
 - PDFs, metadatos de muestra e índices generados se guardan bajo `data/`, fuera de Git. El generador y sus pruebas sí se versionan. ReportLab es dependencia de desarrollo; la extracción solo necesita pypdf.
 
 ## Comprobación
