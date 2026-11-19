@@ -7,15 +7,6 @@ export interface Asignatura {
   temas: string[]
 }
 
-export interface CorpusDocument {
-  id: string
-  titulo: string
-  anio: number
-  asignatura: string
-  tema: string
-  paginas: number
-  estado: 'procesado' | 'pendiente' | 'retirado'
-}
 
 export interface HistoryEntry {
   id: string
@@ -54,11 +45,6 @@ const sampleCitations: Citation[] = [
   cita(2, 15, 'Durante el Principado, la voluntad del príncipe expresada en constituciones adquiere fuerza de ley…'),
 ]
 
-export const corpus: CorpusDocument[] = [
-  { id: 'doc-1', titulo: manual, anio: 1, asignatura: 'Derecho Romano', tema: 'Fuentes del Derecho Romano', paginas: 42, estado: 'procesado' },
-  { id: 'doc-2', titulo: 'Lecturas de Teoría del Estado (muestra)', anio: 1, asignatura: 'Teoría del Estado', tema: 'El Estado', paginas: 30, estado: 'pendiente' },
-  { id: 'doc-3', titulo: 'Apuntes de Derecho Penal (muestra)', anio: 3, asignatura: 'Derecho Penal', tema: 'El delito', paginas: 25, estado: 'retirado' },
-]
 
 export const history: HistoryEntry[] = [
   { id: 'h-1', fecha: '2026-11-18 10:42', accion: 'consulta', resumen: '¿Cuáles son las fuentes del Derecho Romano?' },

@@ -24,6 +24,8 @@ def error_response(status: int, code: str, message: str, details=None, headers=N
 @app.exception_handler(HTTPException)
 def http_error(request: Request, exc: HTTPException) -> JSONResponse:
     code = HTTPStatus(exc.status_code).phrase.lower().replace(" ", "_").replace("-", "_")
+    if exc.status_code == 422:  # p. ej. un PDF ilegible en CU-03: mismo código que el esquema
+        code = "validation_error"
     return error_response(exc.status_code, code, str(exc.detail), headers=exc.headers)
 
 

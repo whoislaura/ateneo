@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { asignaturas, corpus, exam, history } from './mock'
+import { asignaturas, exam, history } from './mock'
 
 const MOCK_NOTE = 'Pantalla de demostración: los resultados son ficticios.'
 
@@ -36,41 +36,6 @@ function SubjectFields() {
 function useSubmitted() {
   const [submitted, setSubmitted] = useState(false)
   return [submitted, (event: FormEvent) => { event.preventDefault(); setSubmitted(true) }] as const
-}
-
-export function Corpus() {
-  const [submitted, submit] = useSubmitted()
-  return (
-    <>
-      <h1>Gestión de corpus</h1>
-      <form onSubmit={submit}>
-        <SubjectFields />
-        <label>
-          Documento PDF
-          <input type="file" accept="application/pdf" />
-        </label>
-        <button type="submit">Subir material</button>
-        {submitted && <p role="status">Subida simulada: no se envió ningún archivo.</p>}
-      </form>
-      <table>
-        <caption>Material registrado</caption>
-        <thead>
-          <tr><th scope="col">Título</th><th scope="col">Año</th><th scope="col">Asignatura</th><th scope="col">Tema</th><th scope="col">Páginas</th><th scope="col">Estado</th><th scope="col">Acciones</th></tr>
-        </thead>
-        <tbody>
-          {corpus.map((doc) => (
-            <tr key={doc.id}>
-              <td>{doc.titulo}</td><td>{doc.anio}.º</td><td>{doc.asignatura}</td><td>{doc.tema}</td><td>{doc.paginas}</td><td>{doc.estado}</td>
-              <td>
-                <button type="button" disabled aria-label={`Actualizar ${doc.titulo}`}>Actualizar</button>{' '}
-                <button type="button" disabled aria-label={`Retirar ${doc.titulo}`}>Retirar</button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </>
-  )
 }
 
 export function Historial() {

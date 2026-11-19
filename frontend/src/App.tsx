@@ -3,8 +3,9 @@ import { Navigate, NavLink, Outlet, Route, Routes, useLocation } from 'react-rou
 import HealthStatus from './HealthStatus'
 import { api, ApiError, hasToken, roleLabels, setToken, setUnauthorizedHandler, type Role, type TokenResponse, type User } from './api'
 import { Consulta } from './consulta'
+import { Corpus } from './corpus'
 import { Generacion } from './generacion'
-import { Corpus, Examen, Feedback, Historial } from './screens'
+import { Examen, Feedback, Historial } from './screens'
 
 const STUDY: Role[] = ['student', 'teacher']
 
@@ -178,7 +179,7 @@ function Layout({ user, allowed, onLogout }: { user: User; allowed: typeof scree
       </main>
       <footer>
         <HealthStatus />
-        <p>Proyecto Ateneo · Corpus, historial, examen y feedback usan aún datos ficticios</p>
+        <p>Proyecto Ateneo · Historial, examen y feedback usan aún datos ficticios</p>
       </footer>
     </div>
   )

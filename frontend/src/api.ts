@@ -64,6 +64,36 @@ export interface Page {
   status: 'text' | 'no_text'
 }
 
+// --- CU-03: corpus (AT-10, AT-23) ---
+
+export type DocumentStatus = 'indexed' | 'partial' | 'retired'
+
+export interface CorpusDocument {
+  id: string
+  title: string
+  year: number
+  subject: string
+  topic: string
+  filename: string
+  version: string
+  status: DocumentStatus
+  created_at: string
+  updated_at: string
+}
+
+export interface IngestionReport {
+  document_id: string
+  version: string
+  status: 'indexed' | 'partial'
+  pages: number
+  chunks: number
+  no_text_pages: number[]
+  warnings: string[]
+  chunk_settings: Record<string, number>
+}
+
+// --- fin CU-03 ---
+
 export class ApiError extends Error {
   constructor(readonly status: number, readonly code: string, message: string) {
     super(message)
@@ -103,7 +133,8 @@ export function setUnauthorizedHandler(handler: () => void) {
 
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers)
-  if (init.body) headers.set('Content-Type', 'application/json')
+  // FormData (subida de PDFs) fija su propio Content-Type multipart con el boundary.
+  if (init.body && !(init.body instanceof FormData)) headers.set('Content-Type', 'application/json')
   const sentToken = token
   if (sentToken) headers.set('Authorization', `Bearer ${sentToken}`)
 

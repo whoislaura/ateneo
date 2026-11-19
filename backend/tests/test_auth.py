@@ -21,7 +21,7 @@ def db_factory():
     engine = create_engine(
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
-    User.metadata.create_all(engine, tables=[User.__table__, AuthSession.__table__])
+    User.metadata.create_all(engine)
     factory = sessionmaker(engine)
     with factory() as db:
         for role in Role:
@@ -141,6 +141,8 @@ ROUTES = {
     "page": ("get", "/api/v1/documents/a/pages/1", {}),
     "feedback": ("post", "/api/v1/feedback", {"json": {"kind": "rating", "rating": 5}}),
 }
+# Rutas ya implementadas: código esperado con permiso (sin documentos en la base).
+ALLOWED = {"documents": 200, "retired": 200, "upload": 422, "retire": 404, "page": 404}
 FORBIDDEN = {
     Role.STUDENT: {"retired", "upload", "retire"},
     Role.TEACHER: set(),
@@ -154,7 +156,8 @@ def test_role_matrix(client, role):
     for name, (method, path, kwargs) in ROUTES.items():
         assert client.request(method, path, **kwargs).status_code == 401, name
         response = client.request(method, path, headers=auth_headers, **kwargs)
-        assert response.status_code == (403 if name in FORBIDDEN[role] else 501), name
+        expected = 403 if name in FORBIDDEN[role] else ALLOWED.get(name, 501)
+        assert response.status_code == expected, name
 
 
 def test_create_user_cli(db_factory, monkeypatch, capsys):

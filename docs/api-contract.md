@@ -19,7 +19,7 @@ Todo error de `/api/v1` usa la misma forma:
 {"error": {"code": "validation_error", "message": "Solicitud inválida.", "details": [...]}}
 ```
 
-`code` es estable y legible por máquina; `message` se puede mostrar; `details` es opcional (en 422 contiene la lista de campos inválidos de FastAPI con `loc`, `msg` y `type`). Códigos usados: 401 `unauthorized`, 403 `forbidden`, 404 `not_found`, 409 `conflict`, 422 `validation_error`, 501 `not_implemented`, 503 `service_unavailable` (el proveedor de IA o de embeddings falló o está mal configurado; no se guarda nada). Cambiar esta forma exige una nueva versión de la API (`/api/v2`).
+`code` es estable y legible por máquina; `message` se puede mostrar; `details` es opcional (en 422 contiene la lista de campos inválidos de FastAPI con `loc`, `msg` y `type`). Códigos usados: 401 `unauthorized`, 403 `forbidden`, 404 `not_found`, 409 `conflict`, 413 `request_entity_too_large`, 422 `validation_error`, 501 `not_implemented`, 503 `service_unavailable` (el proveedor de IA o de embeddings falló o está mal configurado; no se guarda nada). Cambiar esta forma exige una nueva versión de la API (`/api/v2`).
 
 ## Roles
 
@@ -69,6 +69,20 @@ Cada usuario tiene un único rol. Sin sesión válida: 401. Sin permiso: 403. Re
 | `POST /feedback` | CU-10 | AT-28 | Todos | 201 `FeedbackOut` |
 
 La subida usa los campos de formulario `document_id`, `title`, `year`, `subject`, `topic` y `file`; la actualización, los mismos sin `document_id`. `IngestionReport` tiene la forma que ya devuelve `app.rag.index.index_document`: `status` es `indexed` o `partial` y `no_text_pages` lista las páginas sin texto extraíble.
+
+### Gestión del corpus (CU-03, AT-10, AT-18)
+
+Implementado en `backend/app/corpus.py`; las rutas de `api.py` solo lo invocan.
+
+- **Subir** (`POST /documents`): `document_id` de 1 a 200 caracteres `[A-Za-z0-9._-]`, empezando por letra o número (va en la URL). 409 si ya existe, también si está retirado: para reutilizarlo se sustituye con `PUT`.
+- **Archivo**: debe empezar por `%PDF-` (si no, 422). Límite `ATENEO_MAX_UPLOAD_MB` (entero, 20 por defecto): por encima, 413. La extracción es la de la [ingestión](ingestion.md): un PDF cifrado, dañado o sin ningún texto extraíble devuelve 422 con el motivo en `message`. `filename` guarda el nombre enviado, sin ruta.
+- **Indexación**: síncrona dentro de la petición, con `vector.store_document` y el embedder de `ATENEO_EMBEDDER` (`fake` por defecto; el mismo que usa la consulta). Si falla el proveedor de embeddings: 503 y no cambia nada.
+- **Actualizar** (`PUT /documents/{id}`): 404 si no existe. Sustituye PDF y metadatos y reindexa en una transacción: la versión anterior sigue vigente hasta el `COMMIT` y se conserva entera si algo falla. Tras el cambio solo se recuperan fragmentos de la versión nueva. Las citas ya guardadas no se tocan (son copia; su `chunk_id` pasa a nulo) y siguen legibles en `GET /answers/{id}`; el visor avisa de que la versión cambió. Un documento retirado vuelve a estar vigente al sustituirlo.
+- **Retirar** (`DELETE /documents/{id}`): 404 si no existe; idempotente (204 también si ya estaba retirado, sin repetir el historial). Marca `status = retired` sin borrar páginas, fragmentos ni citas. Desde ese momento no se recupera en consultas ni valida citas nuevas (`no_evidence` si era la única fuente).
+- **Listar y leer**: `GET /documents` ordena por año, asignatura y título; `subject` y `topic` se comparan sin mayúsculas ni espacios extremos, como en la consulta. `include_retired=true` es 403 para Estudiante. Para Estudiante, un documento retirado es 404 en `GET /documents/{id}` y en `GET /documents/{id}/pages/{n}`; Profesor y Administrador sí lo leen.
+- **Historial**: subir, actualizar y retirar añaden una entrada `document_upload`, `document_update` o `document_retire` con el título y `document_id`. `documents.uploaded_by` guarda quién subió la versión vigente. La entrada se escribe justo después de la transacción de reindexación, no dentro de ella.
+
+`shortcut:` el PDF se procesa de forma síncrona y en memoria, y Starlette recibe el cuerpo entero antes de comprobar el límite (el corte en red debe hacerlo Nginx con `client_max_body_size`). Basta para el tamaño del corpus del MVP; pasar a una cola de trabajos (respuesta 202 y estado `processing`) cuando las subidas tarden más que el timeout del proxy o se usen embeddings remotos con documentos grandes.
 
 `POST /generations` recibe `format` (`summary`, `outline`, `table`, `diagram`) y `prompt`; el contenido se devuelve como texto estructurado en `content` (ver [Generación](#generación-cu-02-at-17)). `POST /exams` recibe año, asignatura, tema opcional, `question_count` (1–50) y `difficulty` (`easy`, `medium`, `hard`). `POST /feedback` recibe `kind`: `rating` exige `rating` de 1 a 5; `error` y `suggestion` exigen `comment`. `answer_id` y `exam_id` vinculan opcionalmente el feedback.
 
@@ -187,11 +201,13 @@ uv run --frozen alembic upgrade head
 
 `backend/tests/test_auth.py` prueba login, sesión, logout, expiración, credenciales erróneas sin enumeración, la matriz de roles y el comando de alta con usuarios y sesiones en SQLite en memoria (`dependency_overrides`), sin PostgreSQL.
 
+`backend/tests/test_corpus.py` prueba CU-03 y la reindexación en SQLite en memoria con claves foráneas activas: `store_document` es el real y solo se sustituye la búsqueda pgvector por una por términos con el mismo filtro de retirados. Comprueba subida, filtros, página, 409/404/413/422/503, roles, historial, que tras `PUT` solo se recupera la versión nueva y la cita antigua sigue como copia, y que tras `DELETE` la consulta devuelve `no_evidence`. Con `ATENEO_TEST_DATABASE_URL` repite subir → actualizar → retirar contra PostgreSQL/pgvector.
+
 `backend/tests/test_queries.py` prueba CU-01 y la validación de citas en SQLite en memoria, sustituyendo solo la recuperación pgvector por una falsa; `backend/tests/test_generations.py` hace lo mismo con CU-02 (los cuatro formatos, estructura inválida, roles, 503) y casos dorados de los generadores sobre la muestra; con `ATENEO_TEST_DATABASE_URL` además recorre la consulta completa con la muestra indexada en PostgreSQL.
 
 ## Pendiente
 
 - Gestión de usuarios más allá del alta por consola (baja, cambio de rol o contraseña).
 - Consulta del feedback por administradores y profesores (AT-28).
-- Límite de tamaño de PDF y procesamiento asíncrono de subidas (AT-10, AT-18).
+- Procesamiento asíncrono de subidas (ver el `shortcut` de la gestión del corpus).
 - Dimensión del embedding e índice vectorial (AT-14).
