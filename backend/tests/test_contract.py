@@ -80,18 +80,6 @@ def test_openapi_describes_whole_contract():
     assert schema["paths"]["/api/v1/queries"]["post"]["security"] == [{"HTTPBearer": []}]
 
 
-@pytest.mark.parametrize(
-    ("method", "path", "kwargs"),
-    [
-        ("post", "/api/v1/feedback", {"json": {"kind": "rating", "rating": 5}}),
-    ],
-)
-def test_stubs_answer_501_with_error_format(client, method, path, kwargs):
-    response = client.request(method, path, **kwargs)
-    assert response.status_code == 501
-    assert response.json()["error"]["code"] == "not_implemented"
-
-
 def test_validation_and_not_found_use_error_format(client):
     response = client.post("/api/v1/queries", json={"question": "x", "year": 5})
     assert response.status_code == 422

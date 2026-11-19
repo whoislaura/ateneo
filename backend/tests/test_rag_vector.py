@@ -7,7 +7,7 @@ from functools import partial
 import pytest
 from alembic import command
 from sqlalchemy import create_engine, func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 from test_models import BACKEND, TEST_DATABASE_URL, alembic_config
 from test_rag_answer import GOLDEN
 
@@ -127,10 +127,13 @@ def test_postgres_ingestion_reindex_and_vector_search(monkeypatch, tmp_path):
     config = alembic_config()
     command.upgrade(config, "head")
     engine = create_engine(TEST_DATABASE_URL)
+    # La CLI comparte la fábrica de la API, que otras pruebas pueden haber inicializado.
+    monkeypatch.setattr("app.rag.__main__.session_factory", lambda: sessionmaker(engine))
     try:
         folder = tmp_path / "sample"
         create_sample(folder)
         reports = ingest_folder(folder, ChunkSettings(), vector.fake_embedder)
+        assert all(report["status"] != "error" for report in reports), reports
         assert [(r["document_id"], r["status"]) for r in reports] == [
             ("muestra-a", "partial"),
             ("muestra-b", "indexed"),

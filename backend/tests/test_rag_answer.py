@@ -66,7 +66,7 @@ def test_markers_are_resolved_to_exact_quotes_and_renumbered(index):
     def provider(system, user):
         assert "únicamente los fragmentos" in system and "[F1] Muestra sintética muestra-a" in user
         return (
-            "Conserva un catálogo [F1] [F9] [2]. Su término exclusivo es azafrán [F1]. "
+            "Conserva un catálogo [F1] [2]. Su término exclusivo es azafrán [F1]. "
             "De nuevo, conserva un catálogo [F1]."
         )
 
@@ -80,7 +80,17 @@ def test_markers_are_resolved_to_exact_quotes_and_renumbered(index):
         "La biblioteca ficticia conserva un catálogo de libros y páginas.",
         "El término exclusivo de esta página es azafrán.",
     ]
-    assert [i["marker"] for i in result["invalid_citations"]] == ["[F9]"]
+    assert result["invalid_citations"] == []
+
+
+def test_answer_with_valid_and_unknown_markers_is_rejected(index):
+    def provider(system, user):
+        return "Conserva un catálogo [F1]. Afirmación inventada [F9]."
+
+    result = answer_question(index, "¿Qué conserva la biblioteca?", provider, year=1)
+    assert result["status"] == "no_evidence"
+    assert result["answer"] == NOT_FOUND and result["citations"] == []
+    assert [item["marker"] for item in result["invalid_citations"]] == ["[F9]"]
 
 
 def test_citation_that_fails_verification_is_dropped(index, monkeypatch):

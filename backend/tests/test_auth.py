@@ -142,7 +142,16 @@ ROUTES = {
     "feedback": ("post", "/api/v1/feedback", {"json": {"kind": "rating", "rating": 5}}),
 }
 # Rutas ya implementadas: código esperado con permiso (sin documentos en la base).
-ALLOWED = {"documents": 200, "retired": 200, "upload": 422, "retire": 404, "page": 404}
+ALLOWED = {
+    "history": 200,
+    "exams": 200,
+    "feedback": 201,
+    "documents": 200,
+    "retired": 200,
+    "upload": 422,
+    "retire": 404,
+    "page": 404,
+}
 FORBIDDEN = {
     Role.STUDENT: {"retired", "upload", "retire"},
     Role.TEACHER: set(),

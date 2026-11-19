@@ -84,8 +84,10 @@ EMBEDDERS: dict[str, Embedder] = {
 }
 
 
-def store_document(session: Session, document: Document, embedder: Embedder) -> dict:
-    """Sustituye en una transacción las páginas y fragmentos vigentes del documento."""
+def store_document(
+    session: Session, document: Document, embedder: Embedder, *, create_only: bool = False
+) -> dict:
+    """Indexa en una transacción. En modo alta, la clave primaria impide duplicados."""
     if not document.chunks:
         raise IngestionError("No hay fragmentos para indexar.")
     # Los embeddings se calculan antes de abrir la transacción: un fallo de red no toca la base.
@@ -94,9 +96,9 @@ def store_document(session: Session, document: Document, embedder: Embedder) -> 
     meta, identifier = document.metadata, document.metadata.document_id
     with session.begin():
         # Se actualiza la fila en lugar de borrarla para conservar historial y autoría.
-        row = session.get(DocumentRow, identifier, with_for_update=True) or DocumentRow(
-            id=identifier
-        )
+        row = None if create_only else session.get(DocumentRow, identifier, with_for_update=True)
+        if row is None:
+            row = DocumentRow(id=identifier)
         row.title, row.filename, row.version = meta.title, document.filename, document.version
         row.year, row.subject, row.topic = meta.year, meta.subject, meta.topic
         row.status = DocumentStatus(report["status"])

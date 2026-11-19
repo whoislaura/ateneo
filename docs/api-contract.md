@@ -61,12 +61,12 @@ Cada usuario tiene un único rol. Sin sesión válida: 401. Sin permiso: 403. Re
 | `PUT /documents/{document_id}` | CU-03 | AT-10 | Profesor, Administrador | `IngestionReport` tras reindexar |
 | `DELETE /documents/{document_id}` | CU-03 | AT-10 | Profesor, Administrador | 204; retira, no borra |
 | `GET /documents/{document_id}/pages/{page_number}` | CU-05 | AT-12 | Todos | `PageOut` para verificar una cita |
-| `GET /history` | CU-04 | AT-11 | Estudiante, Profesor | `HistoryEntryOut[]` propias, más recientes primero |
-| `POST /exams` | CU-06 | AT-27 | Estudiante, Profesor | 201 `ExamOut` sin respuestas |
+| `GET /history` | CU-04 | AT-11 | Estudiante, Profesor | `HistoryEntryOut[]` de consultas y generaciones propias, más recientes primero. `limit` de 1 a 100 (20 por defecto), `offset` desde 0 |
+| `POST /exams` | CU-06 | AT-27 | Estudiante, Profesor | 201 `ExamOut` sin respuestas. 422 si el corpus no permite generar la cantidad solicitada |
 | `GET /exams` | CU-06 | AT-27 | Estudiante, Profesor | `ExamOut[]` propios |
 | `GET /exams/{exam_id}` | CU-06 | AT-27 | Autor | `ExamOut` |
 | `GET /exams/{exam_id}/answers` | CU-06, CU-05 | AT-27 | Autor | `ExamAnswerOut[]` con citas |
-| `POST /feedback` | CU-10 | AT-28 | Todos | 201 `FeedbackOut` |
+| `POST /feedback` | CU-10 | AT-28 | Todos | 201 `FeedbackOut`. 404 si la referencia a una respuesta o examen no existe o pertenece a otro usuario |
 
 La subida usa los campos de formulario `document_id`, `title`, `year`, `subject`, `topic` y `file`; la actualización, los mismos sin `document_id`. `IngestionReport` tiene la forma que ya devuelve `app.rag.index.index_document`: `status` es `indexed` o `partial` y `no_text_pages` lista las páginas sin texto extraíble.
 
@@ -82,7 +82,7 @@ Implementado en `backend/app/corpus.py`; las rutas de `api.py` solo lo invocan.
 - **Listar y leer**: `GET /documents` ordena por año, asignatura y título; `subject` y `topic` se comparan sin mayúsculas ni espacios extremos, como en la consulta. `include_retired=true` es 403 para Estudiante. Para Estudiante, un documento retirado es 404 en `GET /documents/{id}` y en `GET /documents/{id}/pages/{n}`; Profesor y Administrador sí lo leen.
 - **Historial**: subir, actualizar y retirar añaden una entrada `document_upload`, `document_update` o `document_retire` con el título y `document_id`. `documents.uploaded_by` guarda quién subió la versión vigente. La entrada se escribe justo después de la transacción de reindexación, no dentro de ella.
 
-`shortcut:` el PDF se procesa de forma síncrona y en memoria, y Starlette recibe el cuerpo entero antes de comprobar el límite (el corte en red debe hacerlo Nginx con `client_max_body_size`). Basta para el tamaño del corpus del MVP; pasar a una cola de trabajos (respuesta 202 y estado `processing`) cuando las subidas tarden más que el timeout del proxy o se usen embeddings remotos con documentos grandes.
+`shortcut:` el PDF se procesa de forma síncrona y en memoria, y Starlette recibe el cuerpo entero antes de comprobar el límite; Nginx corta en 25 MB con `client_max_body_size` (ver [despliegue](deployment.md#límites-de-subida)). Basta para el tamaño del corpus del MVP; pasar a una cola de trabajos (respuesta 202 y estado `processing`) cuando las subidas tarden más que el timeout del proxy o se usen embeddings remotos con documentos grandes.
 
 `POST /generations` recibe `format` (`summary`, `outline`, `table`, `diagram`) y `prompt`; el contenido se devuelve como texto estructurado en `content` (ver [Generación](#generación-cu-02-at-17)). `POST /exams` recibe año, asignatura, tema opcional, `question_count` (1–50) y `difficulty` (`easy`, `medium`, `hard`). `POST /feedback` recibe `kind`: `rating` exige `rating` de 1 a 5; `error` y `suggestion` exigen `comment`. `answer_id` y `exam_id` vinculan opcionalmente el feedback.
 
@@ -153,7 +153,7 @@ Costumbre -> Ley escrita: se codifica [1]
 Ley escrita -> Edictos [2]
 ```
 
-La estructura se comprueba dos veces (`app.rag.generate.well_formed`): sobre la salida del modelo y otra vez tras `app.citations.validate`, porque quitar una cita inválida puede dejar un elemento sin fuente. Si no se cumple, la generación entera pasa a `no_evidence` con `content` = `No encontrado en el corpus.`; no se devuelve material parcial ni sin fuentes.
+La estructura se comprueba con `app.rag.generate.well_formed` en el RAG y tras la validación de citas en la API. Si falla la estructura o alguna cita utilizada, la generación entera pasa a `no_evidence` con `content` = `No encontrado en el corpus.`.
 
 ### Validación de citas (AT-12)
 
@@ -161,8 +161,14 @@ La estructura se comprueba dos veces (`app.rag.generate.well_formed`): sobre la 
 
 1. Una cita se descarta si su documento no existe, está retirado o su versión no es la vigente; si la página no existe; si `start`/`end` no son enteros con `0 <= start < end`; o si `quote` está vacía o difiere de `pages.text[start:end]`.
 2. Título del documento y etiqueta de página se copian de la base, no del modelo. `chunk_id` pasa a nulo si el fragmento no existe en ese documento y página.
-3. Las marcas `[n]` de citas descartadas o inexistentes se eliminan del texto; las citas válidas sin marca se descartan. Las restantes se renumeran `1..k` por orden de aparición.
-4. Si no queda ninguna cita, la respuesta pasa a `no_evidence` con `content` = `No encontrado en el corpus.`, sin el texto generado.
+3. Cada marca `[n]` debe referenciar una cita verificable. Se conservan solo las citas utilizadas y se renumeran `1..k` por orden de aparición.
+4. Si una marca referencia una cita descartada o inexistente, o si el texto carece de marcas, la respuesta pasa a `no_evidence` con `content` = `No encontrado en el corpus.`, sin el texto generado.
+
+### Exámenes y feedback (CU-06 y CU-10)
+
+El examen incluye ejercicios de completar texto de páginas del corpus vigente, filtradas por año, asignatura y tema opcional. Las dificultades baja, media y alta ocultan uno, dos o tres términos relevantes. Cada solución conserva una cita exacta con la versión de la página y sus offsets. La creación guarda el examen, las soluciones, las citas y la entrada de actividad en la misma transacción.
+
+Las soluciones se consultan en `/exams/{exam_id}/answers` con la cuenta que creó el examen. La práctica es de autocorrección. El feedback admite valoraciones, reportes de error y sugerencias, con referencias opcionales a recursos propios.
 
 ## Modelo de datos
 

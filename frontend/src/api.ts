@@ -64,6 +64,13 @@ export interface Page {
   status: 'text' | 'no_text'
 }
 
+export interface HistoryEntry {
+  id: number
+  action: 'query' | 'generation'
+  summary: string
+  created_at: string
+}
+
 // --- CU-03: corpus (AT-10, AT-23) ---
 
 export type DocumentStatus = 'indexed' | 'partial' | 'retired'
@@ -180,3 +187,25 @@ export interface GenerationRequest {
   subject?: string
   topic?: string
 }
+
+export type Difficulty = 'easy' | 'medium' | 'hard'
+
+export interface Exam {
+  id: number
+  year: number
+  subject: string
+  topic: string | null
+  difficulty: Difficulty
+  question_count: number
+  questions: { id: number; position: number; statement: string }[]
+  created_at: string
+}
+
+export interface ExamAnswer {
+  question_id: number
+  position: number
+  answer: string
+  citations: Citation[]
+}
+
+export type FeedbackKind = 'rating' | 'error' | 'suggestion'
