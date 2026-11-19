@@ -1,9 +1,9 @@
-"""Rutas /api/v1 del contrato. El historial pendiente responde 501 hasta AT-11.
+"""Rutas /api/v1 del contrato.
 
-Los permisos por rol (AT-08) ya se aplican: 401 sin sesión y 403 sin rol antes del 501.
+Los permisos por rol (AT-08) se aplican: 401 sin sesión y 403 sin rol.
 """
 
-from typing import Annotated, NoReturn
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, status
 from sqlalchemy import select
@@ -65,10 +65,6 @@ router = APIRouter(prefix="/api/v1", responses=ERRORS, dependencies=[Depends(cur
 
 STUDY = [Depends(require_roles(Role.STUDENT, Role.TEACHER))]
 CORPUS = [Depends(require_roles(Role.TEACHER, Role.ADMIN))]
-
-
-def not_implemented() -> NoReturn:
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "Endpoint definido en el contrato.")
 
 
 # CU-00
@@ -352,11 +348,24 @@ def get_page(
     "/history", response_model=list[HistoryEntryOut], dependencies=STUDY, tags=["historial"]
 )
 def list_history(
+    user: Annotated[User, Depends(current_user)],
+    db: Annotated[Session, Depends(get_db)],
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     offset: Annotated[int, Query(ge=0)] = 0,
-):
-    """Estudiante, Profesor. Entradas propias, de la más reciente a la más antigua."""
-    not_implemented()
+) -> list[HistoryEntryOut]:
+    """Estudiante, Profesor. Consultas y generaciones propias, más recientes primero."""
+    statement = (
+        select(HistoryEntry)
+        .where(
+            HistoryEntry.user_id == user.id,
+            HistoryEntry.action.in_((HistoryAction.QUERY, HistoryAction.GENERATION)),
+        )
+        .order_by(HistoryEntry.created_at.desc(), HistoryEntry.id.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    rows = db.scalars(statement)
+    return [HistoryEntryOut.model_validate(row, from_attributes=True) for row in rows]
 
 
 # CU-06

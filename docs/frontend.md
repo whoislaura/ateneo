@@ -1,6 +1,6 @@
 # Frontend
 
-React Router sin framework de UI ni librería de estado. Login, consulta, generación, corpus, exámenes y feedback usan la API descrita en `docs/api-contract.md`. El estado de conexión (`/api/v1/health`, `role="status"`) aparece en el pie de cada pantalla y en el login.
+React Router sin framework de UI ni librería de estado. Login, sesión y roles (CU-00), la consulta con visor de citas (CU-01, CU-05), la generación de material (CU-02), la gestión del corpus (CU-03), el historial (CU-04), los exámenes (CU-06) y el feedback (CU-10) usan la API real según `docs/api-contract.md`. El estado de conexión (`/api/v1/health`, `role="status"`) aparece en el pie de cada pantalla y en el login.
 
 ## Cliente de la API
 
@@ -157,10 +157,12 @@ Estados: cargando la lista; lista vacía; procesando (campos y botones deshabili
 
 ### Historial (CU-04)
 
+Consulta `GET /api/v1/history` con la sesión activa. Muestra las consultas y generaciones propias en páginas de 20, de la más reciente a la más antigua.
+
 ```
 Historial
 Actividad reciente
-| Fecha | Acción (consulta/generación/examen) | Resumen |
+| Fecha | Acción (consulta/generación) | Resumen |
 ```
 
 ### Examen (CU-06)
@@ -203,6 +205,5 @@ Landmarks `header`/`nav`/`main`/`footer`, enlace para saltar al contenido, campo
 
 ## Pendiente
 
-- Integrar el historial con la API y retirar sus datos de `mock.ts` (PR #43).
 - Sugerencias de asignatura y tema a partir de `GET /documents` (AT-10) en lugar de `mock.ts`.
 - Validar wireframes con el cliente (AT-07).

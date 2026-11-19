@@ -1,5 +1,6 @@
-"""CU-01 y CU-05 sin PostgreSQL: SQLite en memoria y recuperación falsa en lugar de pgvector."""
+"""Consultas, citas e historial con SQLite en memoria y recuperación falsa."""
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -20,6 +21,7 @@ from app.models import (
     Citation,
     Document,
     DocumentStatus,
+    HistoryAction,
     HistoryEntry,
     Page,
     PageStatus,
@@ -173,6 +175,60 @@ def test_query_without_evidence_is_persisted_without_citations(client, factory):
         }
     with factory() as db:
         assert db.scalar(select(func.count()).select_from(HistoryEntry)) == 2
+
+
+def test_history_lists_only_own_study_actions_in_order(client, factory):
+    path = "/api/v1/history"
+    student = client.headers_for[Role.STUDENT]
+    teacher = client.headers_for[Role.TEACHER]
+
+    assert client.get(path).status_code == 401
+    assert client.get(path, headers=client.headers_for[Role.ADMIN]).status_code == 403
+    assert client.get(path, headers=student).json() == []
+
+    for question in ("¿Qué conserva la biblioteca?", "¿Cuánto dura el préstamo?"):
+        assert ask(client, question=question).status_code == 201
+    generated = client.post(
+        "/api/v1/generations",
+        json={"format": "summary", "prompt": "Resume el préstamo."},
+        headers=student,
+    )
+    assert generated.status_code == 201
+    assert ask(client, Role.TEACHER, question="Consulta del profesor.").status_code == 201
+
+    with factory() as db:
+        first, second, generation_entry, teacher_entry = db.scalars(
+            select(HistoryEntry).order_by(HistoryEntry.id)
+        ).all()
+        first.created_at = datetime(2026, 1, 2, tzinfo=UTC)
+        second.created_at = generation_entry.created_at = datetime(2026, 1, 1, tzinfo=UTC)
+        db.add(
+            HistoryEntry(
+                user_id=teacher_entry.user_id,
+                action=HistoryAction.DOCUMENT_UPLOAD,
+                summary="Carga fuera del historial de estudio",
+            )
+        )
+        db.commit()
+
+    response = client.get(path, headers=student)
+    assert response.status_code == 200
+    entries = response.json()
+    assert [(item["action"], item["summary"]) for item in entries] == [
+        ("query", "¿Qué conserva la biblioteca?"),
+        ("generation", "Resume el préstamo."),
+        ("query", "¿Cuánto dura el préstamo?"),
+    ]
+    assert entries[1]["answer_id"] == generated.json()["id"]
+    assert entries[0]["created_at"] > entries[1]["created_at"]
+    page = client.get(path, headers=student, params={"limit": 1, "offset": 1})
+    assert page.json() == entries[1:2]
+    assert client.get(path, headers=student, params={"offset": 3}).json() == []
+    assert client.get(path, headers=student, params={"limit": 101}).status_code == 422
+    assert client.get(path, headers=student, params={"offset": -1}).status_code == 422
+    assert [item["summary"] for item in client.get(path, headers=teacher).json()] == [
+        "Consulta del profesor."
+    ]
 
 
 def test_query_roles_and_validation(client):

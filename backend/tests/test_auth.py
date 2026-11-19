@@ -143,6 +143,7 @@ ROUTES = {
 }
 # Rutas ya implementadas: código esperado con permiso (sin documentos en la base).
 ALLOWED = {
+    "history": 200,
     "exams": 200,
     "feedback": 201,
     "documents": 200,

@@ -1,28 +1,9 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { api, ApiError, errorMessage, type Exam, type ExamAnswer, type FeedbackKind } from './api'
-import { asignaturas, history } from './mock'
+import { asignaturas } from './mock'
 
 const difficultyLabels = { easy: 'Baja', medium: 'Media', hard: 'Alta' } as const
-
-export function Historial() {
-  return (
-    <>
-      <h1>Historial</h1>
-      <table>
-        <caption>Actividad reciente</caption>
-        <thead>
-          <tr><th scope="col">Fecha</th><th scope="col">Acción</th><th scope="col">Resumen</th></tr>
-        </thead>
-        <tbody>
-          {history.map((entry) => (
-            <tr key={entry.id}><td>{entry.fecha}</td><td>{entry.accion}</td><td>{entry.resumen}</td></tr>
-          ))}
-        </tbody>
-      </table>
-    </>
-  )
-}
 
 export function Examen() {
   const [exams, setExams] = useState<Exam[]>([])

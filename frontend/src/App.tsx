@@ -5,7 +5,8 @@ import { api, ApiError, hasToken, roleLabels, setToken, setUnauthorizedHandler, 
 import { Consulta } from './consulta'
 import { Corpus } from './corpus'
 import { Generacion } from './generacion'
-import { Examen, Feedback, Historial } from './screens'
+import { Historial } from './historial'
+import { Examen, Feedback } from './screens'
 
 const STUDY: Role[] = ['student', 'teacher']
 
