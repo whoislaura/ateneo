@@ -83,7 +83,6 @@ def test_openapi_describes_whole_contract():
 @pytest.mark.parametrize(
     ("method", "path", "kwargs"),
     [
-        ("post", "/api/v1/queries", {"json": {"question": "¿Qué es?", "year": 1}}),
         ("get", "/api/v1/documents/muestra-a/pages/1", {}),
         (
             "post",

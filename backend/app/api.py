@@ -1,4 +1,4 @@
-"""Rutas /api/v1 del contrato. Responden 501 hasta implementarse en AT-09…AT-12, AT-27 y AT-28.
+"""Rutas /api/v1 del contrato. Las pendientes responden 501 hasta AT-10…AT-12, AT-27 y AT-28.
 
 Los permisos por rol (AT-08) ya se aplican: 401 sin sesión y 403 sin rol antes del 501.
 """
@@ -8,6 +8,7 @@ from typing import Annotated, NoReturn
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
+from app import citations, query
 from app.auth import (
     TOKEN_TTL,
     authenticate,
@@ -18,9 +19,10 @@ from app.auth import (
     revoke_session,
 )
 from app.db import get_db
-from app.models import Role, User
+from app.models import Answer, AnswerKind, HistoryAction, HistoryEntry, Role, User
 from app.schemas import (
     AnswerOut,
+    CitationOut,
     DocumentOut,
     DocumentReplace,
     DocumentUpload,
@@ -87,12 +89,72 @@ def me(user: Annotated[User, Depends(current_user)]):
 # CU-01, CU-02
 
 
+def answer_out(answer: Answer) -> AnswerOut:
+    fields = ("position", "chunk_id", "document_id", "document_title", "document_version")
+    return AnswerOut(
+        id=answer.id,
+        kind=answer.kind,
+        status=answer.status,
+        question=answer.question,
+        year=answer.year,
+        subject=answer.subject,
+        topic=answer.topic,
+        content=answer.content,
+        citations=[
+            CitationOut(
+                **{field: getattr(c, field) for field in fields},
+                page_number=c.page_number,
+                page_label=c.page_label,
+                start=c.start_offset,
+                end=c.end_offset,
+                quote=c.quote,
+            )
+            for c in answer.citations
+        ],
+        created_at=answer.created_at,
+    )
+
+
 @router.post(
-    "/queries", response_model=AnswerOut, status_code=201, dependencies=STUDY, tags=["consulta"]
+    "/queries",
+    response_model=AnswerOut,
+    status_code=201,
+    responses={503: {"model": ErrorResponse}},
+    dependencies=STUDY,
+    tags=["consulta"],
 )
-def create_query(body: QueryRequest):
+def create_query(
+    body: QueryRequest,
+    user: Annotated[User, Depends(current_user)],
+    db: Annotated[Session, Depends(get_db)],
+):
     """Estudiante, Profesor. Respuesta restringida al corpus con citas (CU-05)."""
-    not_implemented()
+    filters = body.model_dump(exclude={"question"})
+    try:
+        result = query.ask(db, body.question, **filters)
+    except (ValueError, OSError) as exc:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "El servicio de respuestas no está disponible."
+        ) from exc
+    answer_status, content, valid = citations.validate(db, result)
+    answer = Answer(
+        user_id=user.id,
+        kind=AnswerKind.QUERY,
+        status=answer_status,
+        question=body.question,
+        content=content,
+        citations=valid,
+        **filters,
+    )
+    db.add(answer)
+    db.flush()
+    db.add(
+        HistoryEntry(
+            user_id=user.id, action=HistoryAction.QUERY, summary=body.question, answer_id=answer.id
+        )
+    )
+    db.commit()
+    return answer_out(answer)
 
 
 @router.post(
@@ -110,9 +172,16 @@ def create_generation(body: GenerationRequest):
 @router.get(
     "/answers/{answer_id}", response_model=AnswerOut, responses=NOT_FOUND, tags=["consulta"]
 )
-def get_answer(answer_id: int):
+def get_answer(
+    answer_id: int,
+    user: Annotated[User, Depends(current_user)],
+    db: Annotated[Session, Depends(get_db)],
+):
     """Autor de la respuesta. Permite reabrir una respuesta desde el historial."""
-    not_implemented()
+    answer = db.get(Answer, answer_id)
+    if answer is None or answer.user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Respuesta no encontrada.")
+    return answer_out(answer)
 
 
 # CU-03, CU-05
