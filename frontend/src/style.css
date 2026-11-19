@@ -26,17 +26,17 @@ nav a.active { font-weight: 700; }
 .session { margin: 0 0 0 auto; }
 .shell > footer { max-width: 900px; margin: 40px auto 0; padding: 0 clamp(16px, 5vw, 56px) 24px; }
 
-form, fieldset { display: grid; gap: 16px; max-width: 640px; }
+form, fieldset { display: grid; gap: 16px; max-width: 640px; min-width: 0; }
 fieldset { border: 1px solid #bcc9c0; border-radius: 6px; padding: 12px 16px; }
-.fields { display: flex; flex-wrap: wrap; gap: 16px; }
-label { display: grid; gap: 4px; font-weight: 600; }
+.fields { display: flex; flex-wrap: wrap; gap: 16px; min-width: 0; }
+label { display: grid; gap: 4px; font-weight: 600; min-width: 0; }
 label.choice { display: flex; gap: 8px; align-items: center; font-weight: 400; }
 input, select, textarea, button { font: inherit; }
-input:not([type=radio]), select, textarea { padding: 6px 8px; border: 1px solid #8a9a92; border-radius: 4px; background: #fff; color: inherit; }
+input:not([type=radio]):not([type=checkbox]), select, textarea { width: 100%; min-width: 0; padding: 6px 8px; border: 1px solid #6f837a; border-radius: 4px; background: #fff; color: inherit; }
 button { justify-self: start; padding: 8px 16px; border: 0; border-radius: 4px; background: #173e3b; color: #fff; cursor: pointer; }
 button:disabled { opacity: .5; cursor: not-allowed; }
 button.link { padding: 0; background: none; color: inherit; text-decoration: underline; }
-.session button { background: none; color: inherit; border: 1px solid #8a9a92; padding: 4px 10px; }
+.session button { background: none; color: inherit; border: 1px solid #6f837a; padding: 4px 10px; }
 
 .result { margin-top: 32px; border-top: 1px solid #bcc9c0; padding-top: 16px; }
 .note { font-size: .85rem; color: #536660; }
@@ -60,7 +60,7 @@ mark { background: #f3d9a4; color: inherit; }
 
 fieldset.plain { border: 0; padding: 0; margin: 0; min-width: 0; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; }
-button.secondary { background: none; color: inherit; border: 1px solid #8a9a92; }
+button.secondary { background: none; color: inherit; border: 1px solid #6f837a; }
 progress { width: 100%; max-width: 640px; }
 dialog { max-width: min(480px, calc(100vw - 32px)); border: 1px solid #bcc9c0; border-radius: 6px; padding: 16px 24px; color: inherit; background: #fbfaf6; }
 dialog::backdrop { background: rgb(23 62 59 / .4); }
