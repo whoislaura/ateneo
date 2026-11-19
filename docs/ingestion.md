@@ -77,7 +77,7 @@ La extracción completa ocurre antes de abrir la transacción de escritura. Se r
 
 - No hay OCR. `no_text` puede significar página vacía, imagen o contenido que el extractor no interpreta. Un PDF parcialmente legible se indexa con advertencias; uno enteramente sin texto se rechaza.
 - Los PDFs cifrados o dañados se rechazan con un error. No se solicitan ni almacenan contraseñas.
-- No hay embeddings, generación IA ni citas generadas por un modelo; la salida son fragmentos y sus referencias verificables.
+- No hay embeddings. La generación con citas verificadas sobre este índice está en el [prototipo RAG](rag-prototype.md).
 - Los documentos se procesan en memoria. Esta herramienta CLI es para muestras controladas. Límites de tamaño, aislamiento del parser y procesamiento de archivos subidos se definirán al integrarla con CU-03.
 - PDFs, metadatos de muestra e índices generados se guardan bajo `data/`, fuera de Git. El generador y sus pruebas sí se versionan. ReportLab es dependencia de desarrollo; la extracción solo necesita pypdf.
 

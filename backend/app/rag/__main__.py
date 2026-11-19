@@ -6,6 +6,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
+from app.rag.answer import PROVIDERS, answer_question, evaluate
 from app.rag.index import index_document, search
 from app.rag.ingestion import ChunkSettings, DocumentMetadata, extract_pdf
 
@@ -28,6 +29,19 @@ def main(argv: list[str] | None = None) -> int:
     lookup.add_argument("--subject")
     lookup.add_argument("--topic")
     lookup.add_argument("--limit", type=int, default=5)
+    ask = commands.add_parser("ask", help="Responder con citas usando solo el índice")
+    ask.add_argument("--index", type=Path, required=True)
+    ask.add_argument("--question", required=True)
+    ask.add_argument("--year", type=int, choices=range(1, 5))
+    ask.add_argument("--subject")
+    ask.add_argument("--topic")
+    ask.add_argument("--provider", choices=PROVIDERS, default="fake")
+    golden = commands.add_parser("eval", help="Evaluar las preguntas doradas")
+    golden.add_argument("--index", type=Path, required=True)
+    golden.add_argument(
+        "--golden", type=Path, default=Path(__file__).with_name("golden_questions.json")
+    )
+    golden.add_argument("--provider", choices=PROVIDERS, default="fake")
     args = parser.parse_args(argv)
     try:
         if args.command == "sample":
@@ -43,6 +57,18 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("El índice debe ser distinto del PDF y sus metadatos.")
             document = extract_pdf(args.pdf, metadata, settings)
             result = index_document(args.index, document)
+        elif args.command == "ask":
+            result = answer_question(
+                args.index,
+                args.question,
+                PROVIDERS[args.provider],
+                year=args.year,
+                subject=args.subject,
+                topic=args.topic,
+            )
+        elif args.command == "eval":
+            questions = json.loads(args.golden.read_text(encoding="utf-8"))
+            result = evaluate(args.index, questions, PROVIDERS[args.provider])
         else:
             result = search(
                 args.index,
@@ -64,7 +90,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
     print(json.dumps(result, ensure_ascii=False, indent=2))
-    return 0
+    return 1 if args.command == "eval" and result["passed"] < result["total"] else 0
 
 
 if __name__ == "__main__":
