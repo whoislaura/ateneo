@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { Link } from 'react-router'
 import { api, errorMessage, type Answer, type Citation, type GenerationFormat, type GenerationRequest } from './api'
 import { Citations, MarkedText } from './consulta'
 import { asignaturas } from './mock'
@@ -110,6 +111,7 @@ export function Generacion() {
             ? <p className="status">{answer.content || 'El corpus no contiene material que respalde este contenido.'}</p>
             : <Material answer={answer} {...marked} />}
           {answer.citations.length > 0 && <Citations citas={answer.citations} selected={selected} onSelect={setSelected} />}
+          <Link to={`/feedback?answer_id=${answer.id}`}>Enviar feedback de esta respuesta</Link>
         </section>
       )}
     </>

@@ -180,3 +180,25 @@ export interface GenerationRequest {
   subject?: string
   topic?: string
 }
+
+export type Difficulty = 'easy' | 'medium' | 'hard'
+
+export interface Exam {
+  id: number
+  year: number
+  subject: string
+  topic: string | null
+  difficulty: Difficulty
+  question_count: number
+  questions: { id: number; position: number; statement: string }[]
+  created_at: string
+}
+
+export interface ExamAnswer {
+  question_id: number
+  position: number
+  answer: string
+  citations: Citation[]
+}
+
+export type FeedbackKind = 'rating' | 'error' | 'suggestion'

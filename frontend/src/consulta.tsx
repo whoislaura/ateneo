@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { Link } from 'react-router'
 import { api, errorMessage, type Answer, type Citation, type Page, type QueryRequest } from './api'
 import { asignaturas } from './mock'
 
@@ -88,6 +89,7 @@ export function Consulta() {
             ? <p className="status">{answer.content || 'El corpus no contiene material que respalde una respuesta.'}</p>
             : <AnswerText answer={answer} onSelect={setSelected} />}
           {answer.citations.length > 0 && <Citations citas={answer.citations} selected={selected} onSelect={setSelected} />}
+          <Link to={`/feedback?answer_id=${answer.id}`}>Enviar feedback de esta respuesta</Link>
         </section>
       )}
     </>

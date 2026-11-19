@@ -179,7 +179,7 @@ function Layout({ user, allowed, onLogout }: { user: User; allowed: typeof scree
       </main>
       <footer>
         <HealthStatus />
-        <p>Proyecto Ateneo · Historial, examen y feedback usan aún datos ficticios</p>
+        <p>Proyecto Ateneo</p>
       </footer>
     </div>
   )
