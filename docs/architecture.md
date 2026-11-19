@@ -2,7 +2,7 @@
 
 - Monorepositorio: backend Python 3.12/FastAPI y frontend React/TypeScript/Vite con Node.js 24.
 - Dependencias reproducibles mediante `backend/uv.lock` y `frontend/package-lock.json`; cambios de dependencias se revisan en PR.
-- PostgreSQL 17 con pgvector. La inicialización crea exclusivamente la extensión; las tablas y migraciones corresponden a Pedro.
+- PostgreSQL 17 con pgvector. La inicialización crea exclusivamente la extensión; las tablas se crean con las migraciones Alembic de Pedro.
 - RAG e ingestión viven dentro de `backend/app/rag/`, a cargo de Laura. No se crea un microservicio adicional.
 - Nginx sirve el frontend compilado y reenvía `/api/` a FastAPI. En desarrollo, Vite cumple esa función.
 
@@ -12,9 +12,9 @@
 
 FastAPI genera OpenAPI en `/openapi.json` y documentación en `/docs` cuando se accede directamente a la API local. El proxy publicado inicialmente expone solo `/api/`; no publica la documentación interactiva.
 
-## Contratos pendientes de Pedro
+## Contrato API y modelo de datos
 
-En Sprint 0, definir usuarios/roles, documentos, chunks, citas, historial, exámenes y feedback. Laura y Ray revisarán el contrato antes de implementar integraciones. No se fija aún proveedor IA, modelo de embeddings, dimensionado vectorial para producción. La estrategia inicial de chunking y su índice textual de muestra están descritos en [ingestión](ingestion.md); los embeddings y el RAG pertenecen a las siguientes tareas.
+El contrato `/api/v1` y el modelo PostgreSQL de usuarios/roles, documentos, páginas, chunks, citas, historial, exámenes y feedback están descritos en [contrato API](api-contract.md). Laura y Ray lo revisan antes de implementar integraciones. Las rutas responden 501 hasta su tarea de Sprint 1 o 2. El esquema se crea con migraciones Alembic en `backend/migrations/`. No se fija aún proveedor IA, modelo de embeddings ni dimensión vectorial; la columna de embeddings queda sin dimensión hasta AT-14. La estrategia inicial de chunking y su índice textual de muestra están descritos en [ingestión](ingestion.md).
 
 ## Contenedores
 
