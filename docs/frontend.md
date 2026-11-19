@@ -1,6 +1,6 @@
 # Frontend (AT-05, AT-20, AT-21, AT-23)
 
-React Router sin framework de UI ni librería de estado. Login, sesión y roles (CU-00), la consulta con visor de citas (CU-01, CU-05), la generación de material (CU-02) y la gestión del corpus (CU-03) usan la API real según `docs/api-contract.md`. Historial, examen y feedback siguen con datos ficticios de `frontend/src/mock.ts` hasta sus tareas de integración. El estado de conexión (`/api/v1/health`, `role="status"`) aparece en el pie de cada pantalla y en el login.
+React Router sin framework de UI ni librería de estado. Login, sesión y roles (CU-00), la consulta con visor de citas (CU-01, CU-05), la generación de material (CU-02), la gestión del corpus (CU-03) y el historial (CU-04) usan la API real según `docs/api-contract.md`. Examen y feedback siguen con datos ficticios hasta sus tareas de integración. El estado de conexión (`/api/v1/health`, `role="status"`) aparece en el pie de cada pantalla y en el login.
 
 ## Cliente de la API
 
@@ -157,10 +157,12 @@ Estados: cargando la lista; lista vacía; procesando (campos y botones deshabili
 
 ### Historial (CU-04)
 
+Consulta `GET /api/v1/history` con la sesión activa. Muestra las consultas y generaciones propias en páginas de 20, de la más reciente a la más antigua.
+
 ```
 Historial
 Actividad reciente
-| Fecha | Acción (consulta/generación/examen) | Resumen |
+| Fecha | Acción (consulta/generación) | Resumen |
 ```
 
 ### Examen (CU-06)
@@ -199,6 +201,6 @@ Landmarks `header`/`nav`/`main`/`footer`, enlace para saltar al contenido, campo
 
 ## Pendiente
 
-- Integrar historial, examen y feedback con la API y retirar sus datos de `mock.ts`.
+- Integrar examen y feedback con la API y retirar sus datos ficticios.
 - Sugerencias de asignatura y tema a partir de `GET /documents` (AT-10) en lugar de `mock.ts`.
 - Validar wireframes con el cliente (AT-07).

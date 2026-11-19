@@ -1,4 +1,4 @@
-"""Rutas /api/v1 del contrato. Las pendientes responden 501 hasta AT-10…AT-12, AT-27 y AT-28.
+"""Rutas /api/v1 del contrato. Las pendientes responden 501 hasta AT-27 y AT-28.
 
 Los permisos por rol (AT-08) ya se aplican: 401 sin sesión y 403 sin rol antes del 501.
 """
@@ -6,6 +6,7 @@ Los permisos por rol (AT-08) ya se aplican: 401 sin sesión y 403 sin rol antes 
 from typing import Annotated, NoReturn
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import citations, corpus, generation, query
@@ -347,11 +348,24 @@ def get_page(
     "/history", response_model=list[HistoryEntryOut], dependencies=STUDY, tags=["historial"]
 )
 def list_history(
+    user: Annotated[User, Depends(current_user)],
+    db: Annotated[Session, Depends(get_db)],
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     offset: Annotated[int, Query(ge=0)] = 0,
-):
-    """Estudiante, Profesor. Entradas propias, de la más reciente a la más antigua."""
-    not_implemented()
+) -> list[HistoryEntryOut]:
+    """Estudiante, Profesor. Consultas y generaciones propias, más recientes primero."""
+    statement = (
+        select(HistoryEntry)
+        .where(
+            HistoryEntry.user_id == user.id,
+            HistoryEntry.action.in_((HistoryAction.QUERY, HistoryAction.GENERATION)),
+        )
+        .order_by(HistoryEntry.created_at.desc(), HistoryEntry.id.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    rows = db.scalars(statement)
+    return [HistoryEntryOut.model_validate(row, from_attributes=True) for row in rows]
 
 
 # CU-06

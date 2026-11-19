@@ -61,7 +61,7 @@ Cada usuario tiene un único rol. Sin sesión válida: 401. Sin permiso: 403. Re
 | `PUT /documents/{document_id}` | CU-03 | AT-10 | Profesor, Administrador | `IngestionReport` tras reindexar |
 | `DELETE /documents/{document_id}` | CU-03 | AT-10 | Profesor, Administrador | 204; retira, no borra |
 | `GET /documents/{document_id}/pages/{page_number}` | CU-05 | AT-12 | Todos | `PageOut` para verificar una cita |
-| `GET /history` | CU-04 | AT-11 | Estudiante, Profesor | `HistoryEntryOut[]` propias, más recientes primero |
+| `GET /history` | CU-04 | AT-11 | Estudiante, Profesor | `HistoryEntryOut[]` de consultas y generaciones propias, más recientes primero. `limit` de 1 a 100 (20 por defecto), `offset` desde 0 |
 | `POST /exams` | CU-06 | AT-27 | Estudiante, Profesor | 201 `ExamOut` sin respuestas |
 | `GET /exams` | CU-06 | AT-27 | Estudiante, Profesor | `ExamOut[]` propios |
 | `GET /exams/{exam_id}` | CU-06 | AT-27 | Autor | `ExamOut` |

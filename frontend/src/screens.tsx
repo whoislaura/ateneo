@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { asignaturas, exam, history } from './mock'
+import { asignaturas, exam } from './mock'
 
 const MOCK_NOTE = 'Pantalla de demostración: los resultados son ficticios.'
 
@@ -36,25 +36,6 @@ function SubjectFields() {
 function useSubmitted() {
   const [submitted, setSubmitted] = useState(false)
   return [submitted, (event: FormEvent) => { event.preventDefault(); setSubmitted(true) }] as const
-}
-
-export function Historial() {
-  return (
-    <>
-      <h1>Historial</h1>
-      <table>
-        <caption>Actividad reciente</caption>
-        <thead>
-          <tr><th scope="col">Fecha</th><th scope="col">Acción</th><th scope="col">Resumen</th></tr>
-        </thead>
-        <tbody>
-          {history.map((entry) => (
-            <tr key={entry.id}><td>{entry.fecha}</td><td>{entry.accion}</td><td>{entry.resumen}</td></tr>
-          ))}
-        </tbody>
-      </table>
-    </>
-  )
 }
 
 export function Examen() {
