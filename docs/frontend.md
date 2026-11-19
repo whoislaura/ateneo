@@ -1,6 +1,6 @@
-# Frontend (AT-05, AT-20, AT-21, AT-23)
+# Frontend
 
-React Router sin framework de UI ni librería de estado. Login, sesión y roles (CU-00), la consulta con visor de citas (CU-01, CU-05), la generación de material (CU-02), la gestión del corpus (CU-03) y el historial (CU-04) usan la API real según `docs/api-contract.md`. Examen y feedback siguen con datos ficticios hasta sus tareas de integración. El estado de conexión (`/api/v1/health`, `role="status"`) aparece en el pie de cada pantalla y en el login.
+React Router sin framework de UI ni librería de estado. Login, sesión y roles (CU-00), la consulta con visor de citas (CU-01, CU-05), la generación de material (CU-02), la gestión del corpus (CU-03), el historial (CU-04), los exámenes (CU-06) y el feedback (CU-10) usan la API real según `docs/api-contract.md`. El estado de conexión (`/api/v1/health`, `role="status"`) aparece en el pie de cada pantalla y en el login.
 
 ## Cliente de la API
 
@@ -167,28 +167,32 @@ Actividad reciente
 
 ### Examen (CU-06)
 
+Permite generar y volver a abrir exámenes propios. Los enunciados se muestran primero y el botón «Ver respuestas» carga las soluciones con el texto exacto de la cita, el documento y la página.
+
 ```
 Examen
 Año [▾]  Asignatura [▾]  Tema [▾]
 Cantidad [2]  Dificultad [Media ▾]
 [Generar examen]
 + 1. Enunciado ---------------+
-| ( ) opción A  ( ) opción B  |
-| Correcta/Incorrecta. Fuente: [Documento, p. N]   ← tras corregir
+| Completa el fragmento […]  |
+| Respuesta [______________] |
 +-----------------------------+
 [Ver respuestas]
 ```
 
 ### Feedback (CU-10)
 
+Guarda valoraciones, reportes y sugerencias. Los enlaces de consulta, generación y examen adjuntan el ID del recurso al feedback.
+
 ```
 Feedback
-+ Valoración de la última respuesta +
++ Valoración +
 | ( )1 ( )2 ( )3 ( )4 ( )5          |
 +-----------------------------------+
 Tipo [Reportar error | Sugerir mejora ▾]
 Comentario [______________________]
-[Enviar]   → «Envío simulado»
+[Enviar feedback] → «Tu feedback se guardó»
 ```
 
 ## Accesibilidad
@@ -201,6 +205,5 @@ Landmarks `header`/`nav`/`main`/`footer`, enlace para saltar al contenido, campo
 
 ## Pendiente
 
-- Integrar examen y feedback con la API y retirar sus datos ficticios.
 - Sugerencias de asignatura y tema a partir de `GET /documents` (AT-10) en lugar de `mock.ts`.
 - Validar wireframes con el cliente (AT-07).

@@ -15,7 +15,17 @@ from test_models import BACKEND, TEST_DATABASE_URL, alembic_config
 from test_queries import make_client
 
 from app.main import app
-from app.models import Base, Chunk, Citation, Document, DocumentStatus, HistoryEntry, Role
+from app.models import (
+    Base,
+    Chunk,
+    Citation,
+    Document,
+    DocumentStatus,
+    Exam,
+    Feedback,
+    HistoryEntry,
+    Role,
+)
 from app.models import Page as PageRow
 from app.rag import vector
 from app.rag.index import content_terms
@@ -192,6 +202,109 @@ def test_upload_validation_and_roles(client, factory, pdfs, monkeypatch):
         assert db.scalars(select(HistoryEntry)).all() == []
 
 
+def test_exam_uses_current_corpus_and_keeps_solutions_private(client, factory, pdfs):
+    assert upload(client, pdfs["muestra-b"]).status_code == 201
+    request = {"year": 1, "subject": "Civil", "topic": "Bienes", "question_count": 1}
+    student = client.headers_for[Role.STUDENT]
+    exams = []
+    for difficulty in ("easy", "medium", "hard"):
+        response = client.post(
+            "/api/v1/exams", headers=student, json=request | {"difficulty": difficulty}
+        )
+        assert response.status_code == 201, response.json()
+        exam = response.json()
+        [question] = exam["questions"]
+        assert question.keys() == {"id", "position", "statement"}
+        assert "…" in question["statement"]
+        exams.append(exam)
+
+    assert len({exam["questions"][0]["statement"] for exam in exams}) == 3
+    assert get(client, "/exams", Role.STUDENT).json() == list(reversed(exams))
+    assert get(client, "/exams").json() == []
+    path = f"/exams/{exams[0]['id']}"
+    assert get(client, path, Role.STUDENT).json() == exams[0]
+    assert get(client, path).status_code == 404
+    assert get(client, path + "/answers").status_code == 404
+    assert get(client, path + "/answers", Role.ADMIN).status_code == 403
+    [solution] = get(client, path + "/answers", Role.STUDENT).json()
+    [citation] = solution["citations"]
+    page = get(client, f"/documents/manual/pages/{citation['page_number']}").json()
+    assert citation["quote"] == page["text"][citation["start"] : citation["end"]]
+    assert solution["answer"] in citation["quote"]
+    assert solution["question_id"] == exams[0]["questions"][0]["id"]
+
+    body = request | {"difficulty": "easy"}
+    for filters in ({"topic": "Otro"}, {"year": 2}, {"question_count": 50}):
+        response = client.post("/api/v1/exams", headers=student, json=body | filters)
+        assert response.status_code == 422
+        assert "El corpus vigente permite" in response.json()["error"]["message"]
+    retired = client.delete("/api/v1/documents/manual", headers=client.headers_for[Role.TEACHER])
+    assert retired.status_code == 204
+    assert client.post("/api/v1/exams", headers=student, json=body).status_code == 422
+    assert get(client, path + "/answers", Role.STUDENT).json() == [solution]
+    with factory() as db:
+        assert len(db.scalars(select(Exam)).all()) == 3
+        history = db.scalars(select(HistoryEntry).where(HistoryEntry.action == "exam")).all()
+        assert {item.exam_id for item in history} == {exam["id"] for exam in exams}
+
+
+def test_feedback_saves_all_types_and_checks_reference_ownership(client, factory, pdfs):
+    assert upload(client, pdfs["muestra-b"]).status_code == 201
+    answer_id = ask(client, NEW_QUESTION).json()["id"]
+    student = client.headers_for[Role.STUDENT]
+    exam = client.post(
+        "/api/v1/exams",
+        headers=student,
+        json={"year": 1, "subject": "Civil", "question_count": 1, "difficulty": "easy"},
+    )
+    assert exam.status_code == 201, exam.json()
+    exam_id = exam.json()["id"]
+    path = "/api/v1/feedback"
+    for body, role in (
+        ({"kind": "rating", "rating": 4, "answer_id": answer_id}, Role.STUDENT),
+        ({"kind": "error", "comment": "Revisar el enunciado", "exam_id": exam_id}, Role.STUDENT),
+        ({"kind": "suggestion", "comment": "Agregar más temas"}, Role.ADMIN),
+    ):
+        response = client.post(path, headers=client.headers_for[role], json=body)
+        assert response.status_code == 201, response.json()
+        assert {field: response.json()[field] for field in body} == body
+
+    for target in ({"answer_id": answer_id}, {"exam_id": exam_id}, {"exam_id": 9999}):
+        response = client.post(
+            path,
+            headers=client.headers_for[Role.TEACHER],
+            json={"kind": "rating", "rating": 5} | target,
+        )
+        assert response.status_code == 404
+    assert client.post(path, headers=student, json={"kind": "suggestion"}).status_code == 422
+    with factory() as db:
+        rows = db.scalars(select(Feedback).order_by(Feedback.id)).all()
+        assert [row.kind for row in rows] == ["rating", "error", "suggestion"]
+        assert [row.rating for row in rows] == [4, None, None]
+        assert rows[0].user_id == rows[1].user_id != rows[2].user_id
+
+
+def test_exam_at_contract_limit_has_unique_questions(client, factory, pdfs):
+    assert upload(client, pdfs["muestra-b"]).status_code == 201
+    with factory() as db:
+        page = db.get(PageRow, ("manual", 1))
+        page.text = "\n".join(
+            f"La revisión documental requiere consultar la regla procesal número {number}."
+            for number in range(1, 61)
+        )
+        db.commit()
+    headers = client.headers_for[Role.STUDENT]
+    response = client.post(
+        "/api/v1/exams",
+        headers=headers,
+        json={"year": 1, "subject": "Civil", "question_count": 50, "difficulty": "hard"},
+    )
+    assert response.status_code == 201, response.json()
+    exam = response.json()
+    assert len({question["statement"] for question in exam["questions"]}) == 50
+    assert len(get(client, f"/exams/{exam['id']}/answers", Role.STUDENT).json()) == 50
+
+
 def test_concurrent_upload_cannot_overwrite_committed_document(client, factory, pdfs, monkeypatch):
     def embed_after_competing_upload(texts):
         # La primera petición ya consultó el ID. La segunda guarda antes de que la primera escriba.
@@ -287,6 +400,27 @@ def test_postgres_reindex_end_to_end(monkeypatch, pdfs):
             assert replace(client, pdfs["muestra-b"], document_id="pg").status_code == 200
             assert ask(client, OLD_QUESTION).json()["status"] == "no_evidence"
             assert ask(client, NEW_QUESTION).json()["status"] == "answered"
+            student = client.headers_for[Role.STUDENT]
+            exam = client.post(
+                "/api/v1/exams",
+                headers=student,
+                json={"year": 1, "subject": "Civil", "question_count": 2, "difficulty": "hard"},
+            )
+            assert exam.status_code == 201, exam.json()
+            exam_id = exam.json()["id"]
+            solutions = get(client, f"/exams/{exam_id}/answers", Role.STUDENT).json()
+            assert len(solutions) == 2
+            assert all(
+                citation["document_id"] == "pg"
+                for solution in solutions
+                for citation in solution["citations"]
+            )
+            feedback = client.post(
+                "/api/v1/feedback",
+                headers=student,
+                json={"kind": "rating", "rating": 5, "exam_id": exam_id},
+            )
+            assert feedback.status_code == 201, feedback.json()
             headers = client.headers_for[Role.ADMIN]
             assert client.delete("/api/v1/documents/pg", headers=headers).status_code == 204
             assert ask(client, NEW_QUESTION).json()["status"] == "no_evidence"

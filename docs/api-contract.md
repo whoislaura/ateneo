@@ -62,11 +62,11 @@ Cada usuario tiene un único rol. Sin sesión válida: 401. Sin permiso: 403. Re
 | `DELETE /documents/{document_id}` | CU-03 | AT-10 | Profesor, Administrador | 204; retira, no borra |
 | `GET /documents/{document_id}/pages/{page_number}` | CU-05 | AT-12 | Todos | `PageOut` para verificar una cita |
 | `GET /history` | CU-04 | AT-11 | Estudiante, Profesor | `HistoryEntryOut[]` de consultas y generaciones propias, más recientes primero. `limit` de 1 a 100 (20 por defecto), `offset` desde 0 |
-| `POST /exams` | CU-06 | AT-27 | Estudiante, Profesor | 201 `ExamOut` sin respuestas |
+| `POST /exams` | CU-06 | AT-27 | Estudiante, Profesor | 201 `ExamOut` sin respuestas. 422 si el corpus no permite generar la cantidad solicitada |
 | `GET /exams` | CU-06 | AT-27 | Estudiante, Profesor | `ExamOut[]` propios |
 | `GET /exams/{exam_id}` | CU-06 | AT-27 | Autor | `ExamOut` |
 | `GET /exams/{exam_id}/answers` | CU-06, CU-05 | AT-27 | Autor | `ExamAnswerOut[]` con citas |
-| `POST /feedback` | CU-10 | AT-28 | Todos | 201 `FeedbackOut` |
+| `POST /feedback` | CU-10 | AT-28 | Todos | 201 `FeedbackOut`. 404 si la referencia a una respuesta o examen no existe o pertenece a otro usuario |
 
 La subida usa los campos de formulario `document_id`, `title`, `year`, `subject`, `topic` y `file`; la actualización, los mismos sin `document_id`. `IngestionReport` tiene la forma que ya devuelve `app.rag.index.index_document`: `status` es `indexed` o `partial` y `no_text_pages` lista las páginas sin texto extraíble.
 
@@ -163,6 +163,12 @@ La estructura se comprueba con `app.rag.generate.well_formed` en el RAG y tras l
 2. Título del documento y etiqueta de página se copian de la base, no del modelo. `chunk_id` pasa a nulo si el fragmento no existe en ese documento y página.
 3. Cada marca `[n]` debe referenciar una cita verificable. Se conservan solo las citas utilizadas y se renumeran `1..k` por orden de aparición.
 4. Si una marca referencia una cita descartada o inexistente, o si el texto carece de marcas, la respuesta pasa a `no_evidence` con `content` = `No encontrado en el corpus.`, sin el texto generado.
+
+### Exámenes y feedback (CU-06 y CU-10)
+
+El examen incluye ejercicios de completar texto de páginas del corpus vigente, filtradas por año, asignatura y tema opcional. Las dificultades baja, media y alta ocultan uno, dos o tres términos relevantes. Cada solución conserva una cita exacta con la versión de la página y sus offsets. La creación guarda el examen, las soluciones, las citas y la entrada de actividad en la misma transacción.
+
+Las soluciones se consultan en `/exams/{exam_id}/answers` con la cuenta que creó el examen. La práctica es de autocorrección. El feedback admite valoraciones, reportes de error y sugerencias, con referencias opcionales a recursos propios.
 
 ## Modelo de datos
 

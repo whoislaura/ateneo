@@ -1,15 +1,15 @@
-"""Rutas /api/v1 del contrato. Las pendientes responden 501 hasta AT-27 y AT-28.
+"""Rutas /api/v1 del contrato.
 
-Los permisos por rol (AT-08) ya se aplican: 401 sin sesión y 403 sin rol antes del 501.
+Los permisos por rol (AT-08) se aplican: 401 sin sesión y 403 sin rol.
 """
 
-from typing import Annotated, NoReturn
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, status
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
-from app import citations, corpus, generation, query
+from app import citations, corpus, exams, generation, query
 from app.auth import (
     TOKEN_TTL,
     authenticate,
@@ -24,7 +24,10 @@ from app.models import (
     Answer,
     AnswerKind,
     AnswerStatus,
+    Citation,
     Document,
+    Exam,
+    Feedback,
     HistoryAction,
     HistoryEntry,
     Role,
@@ -64,10 +67,6 @@ STUDY = [Depends(require_roles(Role.STUDENT, Role.TEACHER))]
 CORPUS = [Depends(require_roles(Role.TEACHER, Role.ADMIN))]
 
 
-def not_implemented() -> NoReturn:
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "Endpoint definido en el contrato.")
-
-
 # CU-00
 
 
@@ -100,8 +99,19 @@ def me(user: Annotated[User, Depends(current_user)]):
 # CU-01, CU-02
 
 
-def answer_out(answer: Answer) -> AnswerOut:
+def citation_out(citation: Citation) -> CitationOut:
     fields = ("position", "chunk_id", "document_id", "document_title", "document_version")
+    return CitationOut(
+        **{field: getattr(citation, field) for field in fields},
+        page_number=citation.page_number,
+        page_label=citation.page_label,
+        start=citation.start_offset,
+        end=citation.end_offset,
+        quote=citation.quote,
+    )
+
+
+def answer_out(answer: Answer) -> AnswerOut:
     return AnswerOut(
         id=answer.id,
         kind=answer.kind,
@@ -111,17 +121,7 @@ def answer_out(answer: Answer) -> AnswerOut:
         subject=answer.subject,
         topic=answer.topic,
         content=answer.content,
-        citations=[
-            CitationOut(
-                **{field: getattr(c, field) for field in fields},
-                page_number=c.page_number,
-                page_label=c.page_label,
-                start=c.start_offset,
-                end=c.end_offset,
-                quote=c.quote,
-            )
-            for c in answer.citations
-        ],
+        citations=[citation_out(citation) for citation in answer.citations],
         created_at=answer.created_at,
     )
 
@@ -374,38 +374,106 @@ def list_history(
 @router.post(
     "/exams", response_model=ExamOut, status_code=201, dependencies=STUDY, tags=["examenes"]
 )
-def create_exam(body: ExamRequest):
+def create_exam(
+    body: ExamRequest,
+    user: Annotated[User, Depends(current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> ExamOut:
     """Estudiante, Profesor. Genera el examen; las respuestas no se incluyen."""
-    not_implemented()
+    exam = Exam(user_id=user.id, questions=exams.make_questions(db, body), **body.model_dump())
+    db.add(exam)
+    db.flush()
+    db.add(
+        HistoryEntry(
+            user_id=user.id, action=HistoryAction.EXAM, summary=exam.subject, exam_id=exam.id
+        )
+    )
+    db.commit()
+    return ExamOut.model_validate(exam, from_attributes=True)
 
 
 @router.get("/exams", response_model=list[ExamOut], dependencies=STUDY, tags=["examenes"])
-def list_exams():
+def list_exams(
+    user: Annotated[User, Depends(current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> list[ExamOut]:
     """Estudiante, Profesor. Exámenes propios."""
-    not_implemented()
+    statement = (
+        select(Exam)
+        .where(Exam.user_id == user.id)
+        .options(selectinload(Exam.questions))
+        .order_by(Exam.created_at.desc(), Exam.id.desc())
+    )
+    return [ExamOut.model_validate(exam, from_attributes=True) for exam in db.scalars(statement)]
 
 
-@router.get("/exams/{exam_id}", response_model=ExamOut, responses=NOT_FOUND, tags=["examenes"])
-def get_exam(exam_id: int):
+def owned_exam(db: Session, exam_id: int, user: User) -> Exam:
+    exam = db.get(Exam, exam_id)
+    if exam is None or exam.user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Examen no encontrado.")
+    return exam
+
+
+@router.get(
+    "/exams/{exam_id}",
+    response_model=ExamOut,
+    responses=NOT_FOUND,
+    dependencies=STUDY,
+    tags=["examenes"],
+)
+def get_exam(
+    exam_id: int,
+    user: Annotated[User, Depends(current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> ExamOut:
     """Autor del examen."""
-    not_implemented()
+    return ExamOut.model_validate(owned_exam(db, exam_id, user), from_attributes=True)
 
 
 @router.get(
     "/exams/{exam_id}/answers",
     response_model=list[ExamAnswerOut],
     responses=NOT_FOUND,
+    dependencies=STUDY,
     tags=["examenes"],
 )
-def get_exam_answers(exam_id: int):
+def get_exam_answers(
+    exam_id: int,
+    user: Annotated[User, Depends(current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> list[ExamAnswerOut]:
     """Autor del examen. Respuestas con sus citas."""
-    not_implemented()
+    exam = owned_exam(db, exam_id, user)
+    return [
+        ExamAnswerOut(
+            question_id=question.id,
+            position=question.position,
+            answer=question.answer,
+            citations=[citation_out(citation) for citation in question.citations],
+        )
+        for question in exam.questions
+    ]
 
 
 # CU-10
 
 
-@router.post("/feedback", response_model=FeedbackOut, status_code=201, tags=["feedback"])
-def create_feedback(body: FeedbackRequest):
+@router.post(
+    "/feedback", response_model=FeedbackOut, status_code=201, responses=NOT_FOUND, tags=["feedback"]
+)
+def create_feedback(
+    body: FeedbackRequest,
+    user: Annotated[User, Depends(current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> FeedbackOut:
     """Todos los roles. Valoración, error reportado o sugerencia."""
-    not_implemented()
+    if body.answer_id is not None:
+        answer = db.get(Answer, body.answer_id)
+        if answer is None or answer.user_id != user.id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Respuesta no encontrada.")
+    if body.exam_id is not None:
+        owned_exam(db, body.exam_id, user)
+    feedback = Feedback(user_id=user.id, **body.model_dump())
+    db.add(feedback)
+    db.commit()
+    return FeedbackOut.model_validate(feedback, from_attributes=True)
