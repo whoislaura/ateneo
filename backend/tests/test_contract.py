@@ -5,7 +5,9 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
+from app.auth import current_user
 from app.main import app
+from app.models import Role, User
 from app.rag.index import index_document
 from app.rag.ingestion import DocumentMetadata, extract_pdf
 from app.rag.sample import create_sample
@@ -48,8 +50,11 @@ CITATION = {
 
 @pytest.fixture(scope="module")
 def client():
+    # Profesor: el único rol con acceso a todos los stubs. Los permisos se prueban en test_auth.
+    app.dependency_overrides[current_user] = lambda: User(id=1, role=Role.TEACHER)
     with TestClient(app) as test_client:
         yield test_client
+    app.dependency_overrides.clear()
 
 
 def test_openapi_describes_whole_contract():
@@ -78,7 +83,6 @@ def test_openapi_describes_whole_contract():
 @pytest.mark.parametrize(
     ("method", "path", "kwargs"),
     [
-        ("post", "/api/v1/auth/login", {"json": {"email": "a@b.cu", "password": "x"}}),
         ("post", "/api/v1/queries", {"json": {"question": "¿Qué es?", "year": 1}}),
         ("get", "/api/v1/documents/muestra-a/pages/1", {}),
         (

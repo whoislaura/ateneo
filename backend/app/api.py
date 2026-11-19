@@ -1,10 +1,24 @@
-"""Rutas /api/v1 del contrato. Responden 501 hasta implementarse en AT-08…AT-12, AT-27 y AT-28."""
+"""Rutas /api/v1 del contrato. Responden 501 hasta implementarse en AT-09…AT-12, AT-27 y AT-28.
+
+Los permisos por rol (AT-08) ya se aplican: 401 sin sesión y 403 sin rol antes del 501.
+"""
 
 from typing import Annotated, NoReturn
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, status
-from fastapi.security import HTTPBearer
+from sqlalchemy.orm import Session
 
+from app.auth import (
+    TOKEN_TTL,
+    authenticate,
+    create_session,
+    current_token,
+    current_user,
+    require_roles,
+    revoke_session,
+)
+from app.db import get_db
+from app.models import Role, User
 from app.schemas import (
     AnswerOut,
     DocumentOut,
@@ -30,11 +44,11 @@ from app.schemas import (
 ERRORS = {code: {"model": ErrorResponse} for code in (401, 403, 422, 501)}
 NOT_FOUND = {404: {"model": ErrorResponse}}
 
-# auto_error=False: los stubs responden 501; AT-08 validará el token y devolverá 401.
-bearer = HTTPBearer(auto_error=False)
-
 public = APIRouter(prefix="/api/v1", responses=ERRORS)
-router = APIRouter(prefix="/api/v1", responses=ERRORS, dependencies=[Depends(bearer)])
+router = APIRouter(prefix="/api/v1", responses=ERRORS, dependencies=[Depends(current_user)])
+
+STUDY = [Depends(require_roles(Role.STUDENT, Role.TEACHER))]
+CORPUS = [Depends(require_roles(Role.TEACHER, Role.ADMIN))]
 
 
 def not_implemented() -> NoReturn:
@@ -45,33 +59,49 @@ def not_implemented() -> NoReturn:
 
 
 @public.post("/auth/login", response_model=TokenResponse, tags=["auth"])
-def login(body: LoginRequest):
+def login(body: LoginRequest, db: Annotated[Session, Depends(get_db)]):
     """Todos los roles. Credenciales inválidas o usuario inactivo: 401."""
-    not_implemented()
+    user = authenticate(db, body.email, body.password)
+    if user is None:
+        # Mismo mensaje para correo inexistente, contraseña errónea o usuario inactivo.
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Correo o contraseña incorrectos.")
+    return TokenResponse(
+        access_token=create_session(db, user),
+        expires_in=int(TOKEN_TTL.total_seconds()),
+        user=UserOut.model_validate(user, from_attributes=True),
+    )
 
 
 @router.post("/auth/logout", status_code=204, tags=["auth"])
-def logout():
+def logout(token: Annotated[str, Depends(current_token)], db: Annotated[Session, Depends(get_db)]):
     """Todos los roles. Invalida el token actual."""
-    not_implemented()
+    revoke_session(db, token)
 
 
 @router.get("/auth/me", response_model=UserOut, tags=["auth"])
-def me():
+def me(user: Annotated[User, Depends(current_user)]):
     """Todos los roles."""
-    not_implemented()
+    return UserOut.model_validate(user, from_attributes=True)
 
 
 # CU-01, CU-02
 
 
-@router.post("/queries", response_model=AnswerOut, status_code=201, tags=["consulta"])
+@router.post(
+    "/queries", response_model=AnswerOut, status_code=201, dependencies=STUDY, tags=["consulta"]
+)
 def create_query(body: QueryRequest):
     """Estudiante, Profesor. Respuesta restringida al corpus con citas (CU-05)."""
     not_implemented()
 
 
-@router.post("/generations", response_model=AnswerOut, status_code=201, tags=["consulta"])
+@router.post(
+    "/generations",
+    response_model=AnswerOut,
+    status_code=201,
+    dependencies=STUDY,
+    tags=["consulta"],
+)
 def create_generation(body: GenerationRequest):
     """Estudiante, Profesor. Resumen, esquema, cuadro o diagrama en texto, con citas."""
     not_implemented()
@@ -90,12 +120,15 @@ def get_answer(answer_id: int):
 
 @router.get("/documents", response_model=list[DocumentOut], tags=["corpus"])
 def list_documents(
+    user: Annotated[User, Depends(current_user)],
     year: Annotated[Year | None, Query()] = None,
     subject: str | None = None,
     topic: str | None = None,
     include_retired: bool = False,
 ):
     """Todos los roles; `include_retired` solo para Profesor y Administrador."""
+    if include_retired and user.role == Role.STUDENT:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "No tiene permiso para esta acción.")
     not_implemented()
 
 
@@ -104,6 +137,7 @@ def list_documents(
     response_model=IngestionReport,
     status_code=201,
     responses={409: {"model": ErrorResponse}},
+    dependencies=CORPUS,
     tags=["corpus"],
 )
 def upload_document(form: Annotated[DocumentUpload, Form(media_type="multipart/form-data")]):
@@ -123,6 +157,7 @@ def get_document(document_id: str):
     "/documents/{document_id}",
     response_model=IngestionReport,
     responses=NOT_FOUND,
+    dependencies=CORPUS,
     tags=["corpus"],
 )
 def replace_document(
@@ -132,7 +167,13 @@ def replace_document(
     not_implemented()
 
 
-@router.delete("/documents/{document_id}", status_code=204, responses=NOT_FOUND, tags=["corpus"])
+@router.delete(
+    "/documents/{document_id}",
+    status_code=204,
+    responses=NOT_FOUND,
+    dependencies=CORPUS,
+    tags=["corpus"],
+)
 def retire_document(document_id: str):
     """Profesor, Administrador. Retira el documento: deja de usarse en respuestas nuevas."""
     not_implemented()
@@ -152,7 +193,9 @@ def get_page(document_id: str, page_number: int):
 # CU-04
 
 
-@router.get("/history", response_model=list[HistoryEntryOut], tags=["historial"])
+@router.get(
+    "/history", response_model=list[HistoryEntryOut], dependencies=STUDY, tags=["historial"]
+)
 def list_history(
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     offset: Annotated[int, Query(ge=0)] = 0,
@@ -164,13 +207,15 @@ def list_history(
 # CU-06
 
 
-@router.post("/exams", response_model=ExamOut, status_code=201, tags=["examenes"])
+@router.post(
+    "/exams", response_model=ExamOut, status_code=201, dependencies=STUDY, tags=["examenes"]
+)
 def create_exam(body: ExamRequest):
     """Estudiante, Profesor. Genera el examen; las respuestas no se incluyen."""
     not_implemented()
 
 
-@router.get("/exams", response_model=list[ExamOut], tags=["examenes"])
+@router.get("/exams", response_model=list[ExamOut], dependencies=STUDY, tags=["examenes"])
 def list_exams():
     """Estudiante, Profesor. Exámenes propios."""
     not_implemented()

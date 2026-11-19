@@ -7,7 +7,7 @@ Laura y Ray revisan el contrato antes de integrar RAG y frontend. Un cambio inco
 ## Convenciones
 
 - Prefijo `/api/v1`, JSON UTF-8 salvo la subida de PDFs (`multipart/form-data`). Identificadores y valores enumerados en inglés; textos para el usuario en español.
-- Autenticación: token `Authorization: Bearer <token>` obtenido en `POST /auth/login`. Todas las rutas salvo login y salud lo exigen. Formato del token, expiración y almacenamiento en el navegador se fijan en AT-08.
+- Autenticación: token `Authorization: Bearer <token>` obtenido en `POST /auth/login`. Todas las rutas salvo login y salud lo exigen. Ver [Autenticación](#autenticación-cu-00-at-08).
 - Fechas ISO 8601 con zona horaria. Las listas devuelven un array JSON; el historial pagina con `limit` (1–100, 20 por defecto) y `offset`.
 - Año: entero de 1 a 4. Asignatura y tema: texto de 1 a 200 caracteres. Preguntas: hasta 1.000 caracteres, igual que el índice de muestra.
 
@@ -29,7 +29,21 @@ Todo error de `/api/v1` usa la misma forma:
 | Profesor | `teacher` | Lo anterior y gestión del corpus (subir, actualizar, retirar, ver retirados). |
 | Administrador | `admin` | Gestión del corpus (incluidos retirados) y envío de feedback. |
 
-Cada usuario tiene un único rol. Sin permiso: 403. Recurso de otro usuario (respuesta, examen): 404, para no revelar su existencia.
+Cada usuario tiene un único rol. Sin sesión válida: 401. Sin permiso: 403. Recurso de otro usuario (respuesta, examen): 404, para no revelar su existencia. Los permisos de la tabla de endpoints ya se aplican (dependencia `require_roles` en `backend/app/auth.py`): los stubs responden 401/403 antes del 501. Las rutas «Autor» solo exigen sesión; la comprobación de autoría corresponde a la tarea que las implemente.
+
+## Autenticación (CU-00, AT-08)
+
+- `POST /auth/login` con `email` y `password`. El correo se compara sin distinguir mayúsculas. Correo inexistente, contraseña errónea y usuario inactivo devuelven el mismo 401 `Correo o contraseña incorrectos.`, con el mismo coste de cálculo.
+- El token es opaco (256 bits aleatorios), no un JWT. La base guarda solo su SHA-256 en `auth_sessions`, con expiración fija de `expires_in` segundos (`ATENEO_TOKEN_TTL_SECONDS`, 8 h por defecto). Se eligió frente a JWT porque `POST /auth/logout` debe invalidar el token y así no hace falta clave de firma.
+- `POST /auth/logout` borra la sesión. Un token expirado, revocado o de un usuario inactivo recibe 401 con `WWW-Authenticate: Bearer`.
+- Contraseñas con scrypt de la biblioteca estándar (sal aleatoria, parámetros guardados en el hash) y comparación en tiempo constante.
+- No hay registro público. Alta de usuarios desde `backend/` con `DATABASE_URL` definida; la contraseña se pide por consola:
+
+  ```powershell
+  uv run python -m app.auth create-user admin@upr.edu.cu --name "Nombre Apellido" --role admin
+  ```
+
+- El frontend guarda el token donde decida AT-05/AT-20; se recomienda memoria o `sessionStorage`, nunca registrarlo en logs.
 
 ## Endpoints
 
@@ -121,9 +135,11 @@ uv run --frozen alembic upgrade head
 
 `backend/tests/test_contract.py` comprueba que OpenAPI describe todas las rutas, el formato de error, las reglas de citas y feedback y la compatibilidad con la salida de la ingestión. `backend/tests/test_models.py` genera el SQL de la migración sin base de datos; si `ATENEO_TEST_DATABASE_URL` apunta a una base PostgreSQL desechable, además aplica la migración, compara el esquema con los modelos y la revierte. CI no dispone de PostgreSQL para el job de backend, por lo que esa parte se omite allí.
 
+`backend/tests/test_auth.py` prueba login, sesión, logout, expiración, credenciales erróneas sin enumeración, la matriz de roles y el comando de alta con usuarios y sesiones en SQLite en memoria (`dependency_overrides`), sin PostgreSQL.
+
 ## Pendiente
 
-- Alta y gestión de usuarios (no hay endpoint; AT-08 decidirá si se usa un comando de administración).
+- Gestión de usuarios más allá del alta por consola (baja, cambio de rol o contraseña).
 - Consulta del feedback por administradores y profesores (AT-28).
 - Límite de tamaño de PDF y procesamiento asíncrono de subidas (AT-10, AT-18).
 - Dimensión del embedding e índice vectorial (AT-14).

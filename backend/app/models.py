@@ -107,6 +107,17 @@ class User(Base):
     created_at: Mapped[datetime] = created_at()
 
 
+class AuthSession(Base):
+    """Sesión de CU-00. Se guarda el SHA-256 del token, nunca el token."""
+
+    __tablename__ = "auth_sessions"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = created_at()
+
+
 class Document(Base):
     """Versión vigente de un documento; `id` es el `document_id` estable de la ingestión."""
 
