@@ -1,9 +1,10 @@
 name: CI
 on:
   pull_request:
-  push:
-    branches: [main]
+    branches: [staging, main]
   workflow_dispatch:
+  # Los pushes a staging/main ejecutan este CI desde deploy.yml antes de desplegar.
+  workflow_call:
 permissions:
   contents: read
 concurrency:
@@ -47,6 +48,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker compose --env-file .env.example config --quiet
+      - run: IMAGE_TAG=ci docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml config --quiet
       - run: docker compose --env-file .env.example up --build --wait --wait-timeout 180
       - run: python infra/smoke.py
       - if: failure()

@@ -19,3 +19,9 @@ indexes/
 *.log
 .DS_Store
 .setup/
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-*

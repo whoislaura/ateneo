@@ -1,0 +1,74 @@
+name: Deploy
+on:
+  push:
+    branches: [staging, main]
+permissions:
+  contents: read
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  IMAGE_REPO: ghcr.io/whoislaura/ateneo
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+  images:
+    name: Images
+    needs: ci
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - run: |
+          for service in api:backend web:frontend; do
+            image="$IMAGE_REPO/${service%%:*}:$GITHUB_SHA"
+            docker build -t "$image" "${service#*:}"
+            docker push "$image"
+          done
+  deploy:
+    name: Deploy
+    needs: images
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
+    env:
+      DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+      DEPLOY_PORT: ${{ vars.DEPLOY_PORT || '22' }}
+      DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+      DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+      DEPLOY_KNOWN_HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
+      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+    steps:
+      - id: config
+        name: Check deploy configuration
+        run: |
+          for name in DEPLOY_HOST DEPLOY_USER DEPLOY_PATH DEPLOY_KNOWN_HOSTS DEPLOY_SSH_KEY; do
+            if [ -z "${!name}" ]; then
+              echo "::notice::Despliegue omitido: falta $name en el entorno de GitHub. Ver docs/deployment.md."
+              exit 0
+            fi
+          done
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+      - if: steps.config.outputs.enabled == 'true'
+        uses: actions/checkout@v4
+      - if: steps.config.outputs.enabled == 'true'
+        name: Deploy over SSH
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          target="$DEPLOY_USER@$DEPLOY_HOST"
+          ssh -i ~/.ssh/id_deploy -p "$DEPLOY_PORT" "$target" "mkdir -p '$DEPLOY_PATH/infra/db'"
+          scp -i ~/.ssh/id_deploy -P "$DEPLOY_PORT" compose.yaml compose.prod.yaml "$target:$DEPLOY_PATH/"
+          scp -i ~/.ssh/id_deploy -P "$DEPLOY_PORT" infra/db/init.sql "$target:$DEPLOY_PATH/infra/db/"
+          ssh -i ~/.ssh/id_deploy -p "$DEPLOY_PORT" "$target" "set -e
+            cd '$DEPLOY_PATH'
+            export IMAGE_TAG='$GITHUB_SHA' COMPOSE_FILE=compose.yaml:compose.prod.yaml
+            docker compose pull --quiet
+            docker compose up -d --wait --wait-timeout 180
+            docker compose exec -T web wget -qO- http://127.0.0.1/api/v1/health"
