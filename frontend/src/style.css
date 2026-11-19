@@ -46,3 +46,14 @@ pre { white-space: pre-wrap; background: #fff; padding: 12px; border-radius: 4px
 table { width: 100%; border-collapse: collapse; margin-top: 32px; display: block; overflow-x: auto; }
 caption { text-align: left; font-weight: 700; padding-bottom: 8px; }
 th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #bcc9c0; }
+
+.answer { white-space: pre-wrap; }
+.marker { font-size: .8em; vertical-align: super; line-height: 1; }
+.citations { padding-left: 0; list-style: none; display: grid; gap: 4px; }
+.viewer { margin-top: 16px; padding: 12px 16px; border: 1px solid #bcc9c0; border-radius: 6px; background: #fbfaf6; }
+.viewer h3 { margin-top: 0; }
+.viewer dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0 0 12px; }
+.viewer dt { font-weight: 600; }
+.viewer dd { margin: 0; overflow-wrap: anywhere; }
+.page { white-space: pre-wrap; max-height: 24rem; overflow-y: auto; margin-top: 12px; padding: 12px; background: #fff; border: 1px solid #bcc9c0; border-radius: 4px; line-height: 1.6; }
+mark { background: #f3d9a4; color: inherit; }

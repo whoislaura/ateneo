@@ -1,28 +1,10 @@
-// Datos ficticios para las pantallas mock (AT-05). Alinear tipos con docs/api-contract.md (AT-02) al integrar.
-
-export type Role = 'estudiante' | 'profesor' | 'administrador'
-
-export const roleLabels: Record<Role, string> = {
-  estudiante: 'Estudiante',
-  profesor: 'Profesor',
-  administrador: 'Administrador',
-}
+// Datos ficticios para las pantallas aún no integradas (AT-05). Los tipos de la API están en api.ts.
+import type { Citation } from './api'
 
 export interface Asignatura {
   anio: number
   nombre: string
   temas: string[]
-}
-
-export interface Citation {
-  documento: string
-  pagina: number
-  fragmento: string
-}
-
-export interface Answer {
-  respuesta: string
-  citas: Citation[]
 }
 
 export type GenerationType = 'resumen' | 'esquema' | 'cuadro' | 'diagrama'
@@ -62,16 +44,17 @@ export const asignaturas: Asignatura[] = [
 
 const manual = 'Manual de Derecho Romano (muestra)'
 
-export const sampleAnswer: Answer = {
-  respuesta:
-    'Las fuentes del Derecho Romano clásico comprenden la costumbre, las leyes, los plebiscitos, los senadoconsultos, ' +
-    'los edictos de los magistrados y la jurisprudencia [Manual de Derecho Romano (muestra), p. 12]. ' +
-    'Con el Principado ganan peso las constituciones imperiales [Manual de Derecho Romano (muestra), p. 15].',
-  citas: [
-    { documento: manual, pagina: 12, fragmento: 'Son fuentes del derecho la costumbre, la ley, el plebiscito, el senadoconsulto, el edicto y la respuesta de los prudentes…' },
-    { documento: manual, pagina: 15, fragmento: 'Durante el Principado, la voluntad del príncipe expresada en constituciones adquiere fuerza de ley…' },
-  ],
+function cita(position: number, page: number, quote: string): Citation {
+  return {
+    position, chunk_id: null, document_id: 'muestra-manual', document_title: manual,
+    document_version: 'muestra', page_number: page, page_label: null, start: 0, end: quote.length, quote,
+  }
 }
+
+export const sampleCitations: Citation[] = [
+  cita(1, 12, 'Son fuentes del derecho la costumbre, la ley, el plebiscito, el senadoconsulto, el edicto y la respuesta de los prudentes…'),
+  cita(2, 15, 'Durante el Principado, la voluntad del príncipe expresada en constituciones adquiere fuerza de ley…'),
+]
 
 export const sampleGenerations: Record<GenerationType, string> = {
   resumen: 'Las fuentes del Derecho Romano evolucionan de la costumbre a la ley escrita y, más tarde, a las constituciones imperiales.',
@@ -98,13 +81,13 @@ export const exam: ExamQuestion[] = [
     enunciado: '¿Qué órgano dictaba los senadoconsultos?',
     opciones: ['Los comicios', 'El Senado', 'El pretor'],
     correcta: 1,
-    cita: { documento: manual, pagina: 13, fragmento: 'El senadoconsulto es lo que el Senado manda y establece…' },
+    cita: cita(1, 13, 'El senadoconsulto es lo que el Senado manda y establece…'),
   },
   {
     id: 'q-2',
     enunciado: '¿Qué fuente gana peso durante el Principado?',
     opciones: ['La costumbre', 'Los plebiscitos', 'Las constituciones imperiales'],
     correcta: 2,
-    cita: sampleAnswer.citas[1],
+    cita: sampleCitations[1],
   },
 ]

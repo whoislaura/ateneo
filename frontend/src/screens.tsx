@@ -1,8 +1,6 @@
 import { useState, type FormEvent } from 'react'
-import {
-  asignaturas, corpus, exam, history, sampleAnswer, sampleGenerations,
-  type Citation, type GenerationType,
-} from './mock'
+import { Citations } from './consulta'
+import { asignaturas, corpus, exam, history, sampleCitations, sampleGenerations, type GenerationType } from './mock'
 
 const MOCK_NOTE = 'Pantalla de demostración: los resultados son ficticios.'
 
@@ -41,57 +39,9 @@ function useSubmitted() {
   return [submitted, (event: FormEvent) => { event.preventDefault(); setSubmitted(true) }] as const
 }
 
-function Citations({ citas }: { citas: Citation[] }) {
-  const [open, setOpen] = useState<Citation | null>(null)
-  return (
-    <section aria-labelledby="fuentes">
-      <h2 id="fuentes">Fuentes</h2>
-      <ul>
-        {citas.map((cita) => (
-          <li key={`${cita.documento}-${cita.pagina}`}>
-            <button type="button" className="link" aria-expanded={open === cita} onClick={() => setOpen(open === cita ? null : cita)}>
-              [{cita.documento}, p. {cita.pagina}]
-            </button>
-          </li>
-        ))}
-      </ul>
-      {open && (
-        <blockquote className="source">
-          <p>{open.fragmento}</p>
-          <footer>{open.documento}, p. {open.pagina}</footer>
-        </blockquote>
-      )}
-    </section>
-  )
-}
-
-export function Consulta() {
-  const [submitted, submit] = useSubmitted()
-  return (
-    <>
-      <h1>Consulta</h1>
-      <form onSubmit={submit}>
-        <SubjectFields />
-        <label>
-          Pregunta
-          <textarea required rows={3} defaultValue="¿Cuáles son las fuentes del Derecho Romano?" />
-        </label>
-        <button type="submit">Consultar</button>
-      </form>
-      {submitted && (
-        <section aria-labelledby="respuesta" className="result">
-          <h2 id="respuesta">Respuesta</h2>
-          <p className="note">{MOCK_NOTE}</p>
-          <p>{sampleAnswer.respuesta}</p>
-          <Citations citas={sampleAnswer.citas} />
-        </section>
-      )}
-    </>
-  )
-}
-
 export function Generacion() {
   const [tipo, setTipo] = useState<GenerationType>('resumen')
+  const [selected, setSelected] = useState<number | null>(null)
   const [submitted, submit] = useSubmitted()
   return (
     <>
@@ -114,7 +64,7 @@ export function Generacion() {
           <h2 id="generado">Resultado</h2>
           <p className="note">{MOCK_NOTE}</p>
           <pre>{sampleGenerations[tipo]}</pre>
-          <Citations citas={sampleAnswer.citas} />
+          <Citations citas={sampleCitations} selected={selected} onSelect={setSelected} />
         </section>
       )}
     </>
@@ -216,7 +166,7 @@ export function Examen() {
               {corrected && (
                 <p>
                   {answers[question.id] === question.correcta ? 'Correcta.' : `Incorrecta. Respuesta: ${question.opciones[question.correcta]}.`}{' '}
-                  Fuente: [{question.cita.documento}, p. {question.cita.pagina}]
+                  Fuente: [{question.cita.document_title}, p. {question.cita.page_number}]
                 </p>
               )}
             </fieldset>
