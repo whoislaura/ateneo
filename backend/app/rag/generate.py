@@ -44,10 +44,7 @@ INSTRUCTIONS = {
 
 SYSTEM_PROMPT = """Eres Ateneo, asistente académico de la Licenciatura en Derecho.
 Genera material de estudio en español usando únicamente los fragmentos del corpus que recibes.
-- No uses conocimiento externo ni supongas datos ausentes en los fragmentos.
-- Cada afirmación debe terminar con la marca del fragmento que la respalda, copiada de su \
-encabezado, por ejemplo [F1]. Una marca por corchete.
-- Usa solo marcas que aparecen en los fragmentos.
+{rules}
 - Responde solo con el material, sin introducción ni comentarios.
 - Si los fragmentos no permiten generarlo, responde exactamente: {not_found}
 Formato: {instructions}"""
@@ -58,7 +55,9 @@ TABLE_SEPARATOR = re.compile(r":?-+:?")
 
 
 def system_prompt(format: str) -> str:
-    return SYSTEM_PROMPT.format(not_found=NOT_FOUND, instructions=INSTRUCTIONS[format])
+    return SYSTEM_PROMPT.format(
+        rules=answer.RULES, not_found=NOT_FOUND, instructions=INSTRUCTIONS[format]
+    )
 
 
 def fake_provider(system: str, user: str) -> str:
