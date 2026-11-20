@@ -302,7 +302,18 @@ def test_exam_at_contract_limit_has_unique_questions(client, factory, pdfs):
     assert response.status_code == 201, response.json()
     exam = response.json()
     assert len({question["statement"] for question in exam["questions"]}) == 50
-    assert len(get(client, f"/exams/{exam['id']}/answers", Role.STUDENT).json()) == 50
+    statements = []
+    engine = factory.kw["bind"]
+
+    def listener(conn, cursor, statement, *args):
+        statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", listener)
+    try:
+        assert len(get(client, f"/exams/{exam['id']}/answers", Role.STUDENT).json()) == 50
+    finally:
+        event.remove(engine, "before_cursor_execute", listener)
+    assert len(statements) < 10  # sin N+1: las citas no se cargan pregunta a pregunta
 
 
 def test_concurrent_upload_cannot_overwrite_committed_document(client, factory, pdfs, monkeypatch):
