@@ -35,37 +35,39 @@ export function Historial() {
   return (
     <>
       <h1>Historial</h1>
-      {loading && <p role="status">Cargando el historial…</p>}
+      {loading && <p role="status" className="loading">Cargando el historial…</p>}
       {error && (
         <>
           <p className="status error" role="alert">{error}</p>
-          <button type="button" onClick={() => load(offset)}>Reintentar</button>
+          <button type="button" className="secondary" onClick={() => load(offset)}>Reintentar</button>
         </>
       )}
       {entries?.length === 0 && (
-        <p role="status">{offset === 0 ? 'Todavía no tienes consultas ni generaciones.' : 'No hay más entradas.'}</p>
+        <p role="status" className="empty">{offset === 0 ? 'Todavía no tienes consultas ni generaciones.' : 'No hay más entradas.'}</p>
       )}
       {entries && entries.length > 0 && (
-        <table>
-          <caption>Actividad reciente</caption>
-          <thead>
-            <tr><th scope="col">Fecha</th><th scope="col">Acción</th><th scope="col">Resumen</th></tr>
-          </thead>
-          <tbody>
-            {entries.slice(0, pageSize).map((entry) => (
-              <tr key={entry.id}>
-                <td><time dateTime={entry.created_at}>{date.format(new Date(entry.created_at))}</time></td>
-                <td>{labels[entry.action]}</td>
-                <td>{entry.summary}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="table-wrap" role="region" aria-label="Actividad reciente" tabIndex={0}>
+          <table>
+            <caption>Actividad reciente</caption>
+            <thead>
+              <tr><th scope="col">Fecha</th><th scope="col">Acción</th><th scope="col">Resumen</th></tr>
+            </thead>
+            <tbody>
+              {entries.slice(0, pageSize).map((entry) => (
+                <tr key={entry.id}>
+                  <td><time dateTime={entry.created_at}>{date.format(new Date(entry.created_at))}</time></td>
+                  <td><span className={`badge ${entry.action}`}>{labels[entry.action]}</span></td>
+                  <td>{entry.summary}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
       {(offset > 0 || (entries && entries.length > pageSize)) && (
-        <div className="fields" role="group" aria-label="Paginación del historial">
-          <button type="button" disabled={loading || offset === 0} onClick={() => load(offset - pageSize)}>Anterior</button>
-          <button type="button" disabled={!entries || entries.length <= pageSize} onClick={() => load(offset + pageSize)}>Siguiente</button>
+        <div className="actions pager" role="group" aria-label="Paginación del historial">
+          <button type="button" className="secondary" disabled={loading || offset === 0} onClick={() => load(offset - pageSize)}>Anterior</button>
+          <button type="button" className="secondary" disabled={!entries || entries.length <= pageSize} onClick={() => load(offset + pageSize)}>Siguiente</button>
         </div>
       )}
     </>

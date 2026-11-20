@@ -38,7 +38,7 @@ export function Consulta() {
   return (
     <>
       <h1>Consulta</h1>
-      <form onSubmit={submit} aria-busy={state === 'loading'}>
+      <form className="card" onSubmit={submit} aria-busy={state === 'loading'}>
         <p className="note">Año, asignatura y tema son opcionales y acotan la búsqueda en el corpus.</p>
         <div className="fields">
           <label>
@@ -68,9 +68,9 @@ export function Consulta() {
         <button type="submit" disabled={state === 'loading'}>Consultar</button>
       </form>
 
-      <p role="status" className="note">{state === 'loading' ? 'Consultando el corpus…' : ''}</p>
+      <p role="status" className="loading">{state === 'loading' ? 'Consultando el corpus…' : ''}</p>
 
-      {state === 'idle' && <p className="note">Aún no has hecho ninguna consulta.</p>}
+      {state === 'idle' && <p className="empty">Aún no has hecho ninguna consulta.</p>}
 
       {state === 'error' && (
         <p id="consulta-error" className="status error" role="alert" tabIndex={-1} ref={(el) => { focusRef.current = el }}>{error}</p>
@@ -85,7 +85,7 @@ export function Consulta() {
             ? <p className="status">{answer.content || 'El corpus no contiene material que respalde una respuesta.'}</p>
             : <AnswerText answer={answer} onSelect={setSelected} />}
           {answer.citations.length > 0 && <Citations citas={answer.citations} selected={selected} onSelect={setSelected} />}
-          <Link to={`/feedback?answer_id=${answer.id}`}>Enviar feedback de esta respuesta</Link>
+          <Link className="feedback-link" to={`/feedback?answer_id=${answer.id}`}>Enviar feedback de esta respuesta</Link>
         </section>
       )}
     </>
@@ -119,7 +119,7 @@ export function Citations({ citas, selected, onSelect }: { citas: Citation[]; se
         {citas.map((cita) => (
           <li key={cita.position}>
             <button type="button" className="link" aria-expanded={cita === open} aria-controls="visor-cita" onClick={() => onSelect(cita === open ? null : cita.position)}>
-              [{cita.position}] {cita.document_title}, {pageName(cita)}
+              <span className="cite-num">[{cita.position}]</span> <span className="cite-title">{cita.document_title},</span> <span className="cite-page">{pageName(cita)}</span>
             </button>
           </li>
         ))}
@@ -168,16 +168,16 @@ function CitationViewer({ cita }: { cita: Citation }) {
       </dl>
       <blockquote className="source"><p>{cita.quote}</p></blockquote>
       {!page && (
-        <button type="button" onClick={loadPage} disabled={state === 'loading'} aria-describedby={state === 'error' ? 'visor-error' : undefined}>
+        <button type="button" className="secondary" onClick={loadPage} disabled={state === 'loading'} aria-describedby={state === 'error' ? 'visor-error' : undefined}>
           Ver en la página
         </button>
       )}
-      <p role="status" className="note">{state === 'loading' ? 'Cargando la página…' : ''}</p>
+      <p role="status" className="loading">{state === 'loading' ? 'Cargando la página…' : ''}</p>
       {state === 'error' && <p id="visor-error" className="status error" role="alert">{error}</p>}
       {page && (
         <>
-          {!sameVersion && <p className="status error">El documento se ha actualizado desde esta cita; la página vigente puede no contener el texto citado.</p>}
-          {sameVersion && !matches && <p className="status error">El texto de la página no coincide con la cita guardada.</p>}
+          {!sameVersion && <p className="status warning">El documento se ha actualizado desde esta cita; la página vigente puede no contener el texto citado.</p>}
+          {sameVersion && !matches && <p className="status warning">El texto de la página no coincide con la cita guardada.</p>}
           {page.status === 'no_text' && <p className="note">La página no tiene texto extraíble.</p>}
           <div className="page" tabIndex={0} ref={pageRef} aria-label={`Texto de la página ${page.number}`}>
             {matches ? (

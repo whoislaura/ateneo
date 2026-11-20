@@ -11,14 +11,22 @@ import { Examen, Feedback } from './screens'
 const STUDY: Role[] = ['student', 'teacher']
 
 // Matriz rol → pantalla según docs/api-contract.md; el backend aplica los permisos reales (403).
-const screens: { path: string; label: string; roles: Role[]; element: ReactNode }[] = [
-  { path: 'consulta', label: 'Consulta', roles: STUDY, element: <Consulta /> },
-  { path: 'generacion', label: 'Generación', roles: STUDY, element: <Generacion /> },
-  { path: 'corpus', label: 'Corpus', roles: ['teacher', 'admin'], element: <Corpus /> },
-  { path: 'historial', label: 'Historial', roles: STUDY, element: <Historial /> },
-  { path: 'examen', label: 'Examen', roles: STUDY, element: <Examen /> },
-  { path: 'feedback', label: 'Feedback', roles: ['student', 'teacher', 'admin'], element: <Feedback /> },
+const screens: { path: string; label: string; roles: Role[]; element: ReactNode; icon: ReactNode }[] = [
+  { path: 'consulta', label: 'Consulta', roles: STUDY, element: <Consulta />, icon: <><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></> },
+  { path: 'generacion', label: 'Generación', roles: STUDY, element: <Generacion />, icon: <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zm0 0v6h6M8 13h8m-8 4h5" /> },
+  { path: 'corpus', label: 'Corpus', roles: ['teacher', 'admin'], element: <Corpus />, icon: <path d="M4 19.5V5a2 2 0 0 1 2-2h14v15H6.5A2.5 2.5 0 0 0 4 20.5 2.5 2.5 0 0 0 6.5 23H20M8 7h8" /> },
+  { path: 'historial', label: 'Historial', roles: STUDY, element: <Historial />, icon: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></> },
+  { path: 'examen', label: 'Examen', roles: STUDY, element: <Examen />, icon: <path d="M10 6h10M10 12h10M10 18h10M3 6l1.5 1.5L7 5m-4 7 1.5 1.5L7 11m-4 7 1.5 1.5L7 17" /> },
+  { path: 'feedback', label: 'Feedback', roles: ['student', 'teacher', 'admin'], element: <Feedback />, icon: <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /> },
 ]
+
+/** Icono de trazo decorativo; el texto contiguo da el nombre accesible. */
+function Icon({ children }: { children: ReactNode }) {
+  return <svg className="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">{children}</svg>
+}
+
+// Columnas de un ateneo clásico: marca de la aplicación.
+const logo = <Icon><path d="M3 9.5 12 4l9 5.5M5 10v8m4.67-8v8m4.66-8v8M19 10v8M3 20.5h18" /></Icon>
 
 export default function App() {
   // undefined: comprobando el token guardado con /auth/me; null: sin sesión.
@@ -55,8 +63,8 @@ export default function App() {
 
   if (user === undefined) {
     return (
-      <main>
-        <p role="status">Comprobando la sesión…</p>
+      <main className="boot">
+        <p role="status" className="loading">Comprobando la sesión…</p>
       </main>
     )
   }
@@ -131,25 +139,31 @@ function Login({ expired, onLogin }: { expired: boolean; onLogin: (user: User) =
 
   return (
     <main className="login">
-      <p className="eyebrow">DERECHO · UNIVERSIDAD DE PINAR DEL RÍO</p>
-      <h1 className="brand">Ateneo</h1>
-      <p className="intro">Un espacio para consultar, comprender y practicar.</p>
-      {expired && <p className="status error" role="alert">Tu sesión ha caducado. Vuelve a entrar para continuar.</p>}
-      <form onSubmit={submit}>
-        <label>
-          Correo electrónico
-          <input name="email" type="email" autoComplete="username" required maxLength={320} aria-invalid={!!error} aria-describedby={describedBy} />
-        </label>
-        <label>
-          Contraseña
-          <input name="password" type="password" autoComplete="current-password" required maxLength={200} aria-invalid={!!error} aria-describedby={describedBy} />
-        </label>
-        {error && <p id="login-error" className="status error" role="alert" tabIndex={-1} ref={errorRef}>{error}</p>}
-        <button type="submit" disabled={pending}>{pending ? 'Entrando…' : 'Entrar'}</button>
-      </form>
-      <footer>
-        <HealthStatus />
-      </footer>
+      <div className="login-brand">
+        {logo}
+        <p className="eyebrow">DERECHO · UNIVERSIDAD DE PINAR DEL RÍO</p>
+        <h1 className="brand">Ateneo</h1>
+        <p className="intro">Un espacio para consultar, comprender y practicar.</p>
+      </div>
+      <div className="login-card">
+        <h2>Iniciar sesión</h2>
+        {expired && <p className="status error" role="alert">Tu sesión ha caducado. Vuelve a entrar para continuar.</p>}
+        <form onSubmit={submit}>
+          <label>
+            Correo electrónico
+            <input name="email" type="email" autoComplete="username" required maxLength={320} aria-invalid={!!error} aria-describedby={describedBy} />
+          </label>
+          <label>
+            Contraseña
+            <input name="password" type="password" autoComplete="current-password" required maxLength={200} aria-invalid={!!error} aria-describedby={describedBy} />
+          </label>
+          {error && <p id="login-error" className="status error" role="alert" tabIndex={-1} ref={errorRef}>{error}</p>}
+          <button type="submit" disabled={pending}>{pending ? 'Entrando…' : 'Entrar'}</button>
+        </form>
+        <footer>
+          <HealthStatus />
+        </footer>
+      </div>
     </main>
   )
 }
@@ -164,19 +178,25 @@ function Layout({ user, allowed, onLogout }: { user: User; allowed: typeof scree
   return (
     <div className="shell">
       <a className="skip" href="#contenido">Saltar al contenido</a>
-      <header>
-        <p className="logo">Ateneo</p>
-        <nav aria-label="Principal">
-          <ul>
-            {allowed.map((screen) => (
-              <li key={screen.path}><NavLink to={`/${screen.path}`}>{screen.label}</NavLink></li>
-            ))}
-          </ul>
-        </nav>
+      <header className="topbar">
+        <p className="logo">{logo}Ateneo</p>
         <p className="session">
-          {user.full_name} · {roleLabels[user.role]} <button type="button" onClick={onLogout}>Cerrar sesión</button>
+          <span className="avatar" aria-hidden="true">{user.full_name.trim().charAt(0).toUpperCase()}</span>
+          <span className="session-name">{user.full_name}</span>
+          <span className="badge role">{roleLabels[user.role]}</span>
+          <button type="button" className="secondary small" onClick={onLogout}>
+            <Icon><path d="M15 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4m-5-3 5-5-5-5m5 5H3" /></Icon>
+            <span className="label">Cerrar sesión</span>
+          </button>
         </p>
       </header>
+      <nav className="sidebar" aria-label="Principal">
+        <ul>
+          {allowed.map((screen) => (
+            <li key={screen.path}><NavLink to={`/${screen.path}`}><Icon>{screen.icon}</Icon>{screen.label}</NavLink></li>
+          ))}
+        </ul>
+      </nav>
       <main id="contenido" ref={mainRef} tabIndex={-1}>
         <Outlet />
       </main>
