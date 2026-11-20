@@ -121,6 +121,7 @@ Las claves de IA viven solo en el `.env` del servidor, nunca en el frontend ni e
 | [Frontend](docs/frontend.md) | Pantallas, sistema visual y accesibilidad |
 | [Despliegue](docs/deployment.md) | Entornos, pipeline, operación y backups |
 | [Guía de demo](docs/demo.md) | Recorrido para enseñar la aplicación |
+| [Revisión con el cliente](docs/revision-cliente.md) | Preparación, guion por rol, aceptación y feedback de las revisiones |
 | [Backlog](docs/backlog.md) · [Colaboración](CONTRIBUTING.md) | Tareas, flujo de ramas y revisión |
 
 ## Estructura
