@@ -30,6 +30,7 @@ from app.models import (
     Citation,
     Document,
     Exam,
+    ExamQuestion,
     Feedback,
     HistoryAction,
     HistoryEntry,
@@ -462,6 +463,12 @@ def get_exam_answers(
 ) -> list[ExamAnswerOut]:
     """Autor del examen. Respuestas con sus citas."""
     exam = owned_exam(db, exam_id, user)
+    questions = db.scalars(
+        select(ExamQuestion)
+        .where(ExamQuestion.exam_id == exam.id)
+        .options(selectinload(ExamQuestion.citations))  # sin una consulta de citas por pregunta
+        .order_by(ExamQuestion.position)
+    )
     return [
         ExamAnswerOut(
             question_id=question.id,
@@ -469,7 +476,7 @@ def get_exam_answers(
             answer=question.answer,
             citations=[citation_out(citation) for citation in question.citations],
         )
-        for question in exam.questions
+        for question in questions
     ]
 
 
