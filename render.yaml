@@ -11,8 +11,16 @@ services:
     envVars:
       - key: DATABASE_URL # postgresql+psycopg://usuario:clave@host/base?sslmode=require
         sync: false
+      # Modelo real vía OpenRouter (API compatible con OpenAI). La clave se introduce en Render.
       - key: ATENEO_LLM_PROVIDER
-        value: fake
+        value: openai
+      - key: ATENEO_LLM_BASE_URL
+        value: https://openrouter.ai/api/v1
+      - key: ATENEO_LLM_MODEL
+        value: nvidia/nemotron-3-ultra-550b-a55b:free
+      - key: ATENEO_LLM_API_KEYS
+        sync: false
+      # Fase 1: embeddings de prueba; cambiarlos obliga a resubir el corpus.
       - key: ATENEO_EMBEDDER
         value: fake
       - key: ATENEO_MAX_UPLOAD_MB

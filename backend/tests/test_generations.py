@@ -170,12 +170,17 @@ def test_generation_roles_and_validation(client):
         assert response.status_code == 422, body
 
 
-def test_generation_failure_is_503_and_persists_nothing(client, factory, monkeypatch):
+def test_generation_failure_is_503_and_persists_nothing(client, factory, monkeypatch, caplog):
     monkeypatch.setenv("ATENEO_LLM_PROVIDER", "openai")
     monkeypatch.delenv("ATENEO_LLM_API_KEY", raising=False)
-    response = generate(client, format="summary", prompt="catálogo")
+    monkeypatch.delenv("ATENEO_LLM_API_KEYS", raising=False)
+    with caplog.at_level("WARNING", logger="ateneo.ai"):
+        response = generate(client, format="summary", prompt="catálogo")
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "service_unavailable"
+    # La causa queda en el log para diagnosticar el proveedor, sin la pregunta.
+    [record] = [r for r in caplog.records if r.getMessage() == "ai_error"]
+    assert record.error.startswith("ValueError") and "catálogo" not in record.error
     with factory() as db:
         assert db.scalar(select(func.count()).select_from(Answer)) == 0
 
