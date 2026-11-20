@@ -17,7 +17,7 @@ from app.rag.answer import (
     Provider,
     build_prompt,
     cite_reply,
-    claim_before,
+    claim_in_line,
     retrieve,
 )
 from app.rag.index import content_terms
@@ -89,12 +89,6 @@ def fake_provider(system: str, user: str) -> str:
 
 # El proveedor real es el mismo de CU-01 (con su envoltorio de rotación de claves, si lo tiene).
 PROVIDERS: dict[str, Provider] = {"fake": fake_provider, "openai": answer.PROVIDERS["openai"]}
-
-
-def claim_in_line(text: str, position: int) -> str:
-    """Afirmación de una marca dentro de su línea o celda, no de las anteriores."""
-    start = max(text.rfind("\n", 0, position), text.rfind("|", 0, position)) + 1
-    return claim_before(text[start:], position - start)
 
 
 def well_formed(format: str, content: str) -> bool:

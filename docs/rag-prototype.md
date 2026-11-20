@@ -6,11 +6,36 @@ AT-04 (issue #4) creó el prototipo de línea de comandos en `app.rag.answer` so
 
 Desde AT-15/AT-16 (issues #15 y #16) el flujo de CU-01 devuelve citas con la forma del contrato ([CU-05](api-contract.md#contrato-de-citas-cu-05)).
 
-1. **Recuperación.** Se eliminan palabras vacías de la pregunta. Con la ruta de un índice SQLite se buscan los términos restantes en FTS5; con una sesión de base de datos se busca la pregunta completa por similitud coseno en pgvector. Máximo cinco fragmentos, con los filtros opcionales de año, asignatura y tema.
+1. **Recuperación.** Se eliminan palabras vacías de la pregunta. Con la ruta de un índice SQLite se buscan los términos restantes en FTS5; con una sesión de base de datos se busca la pregunta completa por similitud coseno en pgvector. Máximo cinco fragmentos (modo breve; el [modo desarrollada](#modo-desarrollada) usa más), con los filtros opcionales de año, asignatura y tema.
 2. **Fuera del corpus.** pgvector siempre devuelve vecinos, así que se descarta todo vecino que no comparta un término con la pregunta y además esté a más de `ATENEO_MAX_DISTANCE` (distancia coseno, 0.5 por defecto). FTS5 ya exige un término común. Si no quedan términos o fragmentos, la respuesta es `no_evidence` y no se llama al modelo.
 3. **Generación.** El prompt de sistema (`SYSTEM_PROMPT`) exige responder en español solo con los fragmentos, terminar cada afirmación con la marca del fragmento (`[F1]`, `[F2]`…) y responder `No encontrado en el corpus.` si no hay base. Cada fragmento se entrega con su marca, título y página.
 4. **Cita exacta.** Cada marca se resuelve al fragmento recuperado y, dentro de él, a la oración con más términos de la afirmación que la precede (el fragmento entero si ninguna coincide). Como el texto del fragmento es `página.text[start:end]`, los offsets de la oración se trasladan a la página y `quote` es exactamente ese texto.
-5. **Verificación (`app.rag.citations`, CU-05).** Cada cita se comprueba contra la fuente vigente: el `chunk_id` debe existir en la versión actual de un documento no retirado, corresponder al mismo documento, versión y página, quedar dentro del fragmento y cumplir `quote == página.text[start:end]`. Cualquier cita inválida o marca de un fragmento no entregado se informa en `invalid_citations` y la respuesta completa pasa a `no_evidence`. Si todas son válidas, se renumeran `[1]`, `[2]`… por orden de aparición. Una cita repetida conserva su número y `[n]` es `citations[n - 1]`.
+5. **Verificación (`app.rag.citations`, CU-05).** Cada cita se comprueba contra la fuente vigente: el `chunk_id` debe existir en la versión actual de un documento no retirado, corresponder al mismo documento, versión y página, quedar dentro del fragmento y cumplir `quote == página.text[start:end]`. Cualquier cita inválida o marca de un fragmento no entregado se informa en `invalid_citations` y la respuesta completa pasa a `no_evidence` (en modo desarrollada solo se eliminan sus oraciones). Si todas son válidas, se renumeran `[1]`, `[2]`… por orden de aparición. Una cita repetida conserva su número y `[n]` es `citations[n - 1]`.
+
+## Modo desarrollada
+
+`answer_question(..., mode="desarrollada")` (en la API, `QueryRequest.mode`) da una respuesta más completa con **la misma única llamada al modelo**: solo cambian la recuperación, el prompt y la política de citas. `mode="breve"` (por defecto) no cambia nada de lo anterior.
+
+**Recuperación (`retrieve_developed`).** Variables de entorno, con valor por defecto y rango (fuera de rango → `ValueError`, la API responde 503):
+
+| Variable | Defecto | Rango | Efecto |
+|---|---|---|---|
+| `ATENEO_DEVELOPED_FRAGMENTS` | 16 | 1–30 | Fragmentos recuperados como máximo. Se piden 3× candidatos (tope 60) y se aplica el mismo filtro de fuera del corpus que en breve. |
+| `ATENEO_DEVELOPED_PER_DOCUMENT` | 6 | 1–30 | Tope de fragmentos por documento, para que entren varios documentos. Es estricto: si solo un documento es pertinente, se usan como mucho 6 de sus fragmentos. |
+| `ATENEO_DEVELOPED_CONTEXT_CHARS` | 30000 | 1000–400000 | Presupuesto total de caracteres de fragmentos en el prompt (~8 000 tokens). |
+
+Primero entran los fragmentos recuperados, por relevancia, mientras quepan en el presupuesto. Después, también por relevancia, cada uno se amplía con el fragmento anterior y el siguiente **de la misma página** (los fragmentos se solapan, así que el texto ampliado es contiguo) si caben y no están ya en otro bloque. El texto ampliado es `página.text[start:end]`, así que los offsets siguen siendo de página; el bloque guarda en `chunks` los fragmentos que lo forman y la cita de una afirmación se toma solo de oraciones contenidas enteras en uno de ellos, con el `chunk_id` de ese fragmento. Así la verificación de CU-05 (cita dentro de su fragmento, `quote == página.text[start:end]`) no cambia. Cada bloque sigue teniendo una sola marca `[Fn]`.
+
+**Prompt (`DEVELOPED_PROMPT`).** Mismas reglas comunes (`RULES`: solo corpus, una marca por afirmación, fragmentos y pregunta como datos, sin aceptar premisas falsas) y la negativa exacta `No encontrado en el corpus.`. Pide en español los títulos `## Planteamiento`, `## Desarrollo`, `## Fundamentación` (un argumento por línea `- argumento [Fn]`), `## Conclusión` y `## Límites del corpus` (lo que los fragmentos no cubren, sin inventarlo), entre 300 y 900 palabras, sin negritas ni tablas. Permite oraciones de enlace sin marca solo si no añaden hechos, normas, cifras ni fechas. No se fija `max_tokens` (la llamada nunca lo ha fijado, así que el modelo usa su máximo); el tiempo de espera de la llamada se configura con `ATENEO_LLM_TIMEOUT` (segundos, 60 por defecto, 1–600). Nginx corta a los 120 s (`proxy_read_timeout`) y la rotación de claves reintenta con otra clave ante un timeout, así que con el modelo gratuito conviene probar `ATENEO_LLM_TIMEOUT=100` antes de subirlo más.
+
+**Política de citas.**
+
+- *Breve* sigue siendo estricta: una sola marca inválida (fragmento no entregado, cifras que no están en el fragmento o cita que no pasa la verificación) descarta la respuesta entera (`no_evidence`). Se mantiene así porque una respuesta breve tiene una o dos afirmaciones: quitar una deja una respuesta parcial que parece completa, y una marca mala en tan poco texto indica que el modelo se salió del corpus.
+- *Desarrollada* elimina solo las oraciones afectadas (`cite_reply(..., partial=True)`). La respuesta se parte en oraciones con sus marcas finales y saltos de línea (`SEGMENT`; un punto sin espacio detrás, como en «1.850», no corta). Se elimina toda oración con alguna marca inválida y toda oración **sin marca que contenga cifras** (una cifra no puede publicarse sin cita). Cada oración eliminada se anota en `invalid_citations` como `{"claim", "reason"}`, además del motivo de cada marca (`marker`/campos de la cita y `reason`). Si no queda ninguna marca verificada, la respuesta es `no_evidence`. La afirmación de cada marca es la de su línea (`claim_in_line`), para que la regla de cifras no mezcle elementos de lista distintos. Una sección cuyo contenido se elimina entero conserva su título.
+- La negativa `No encontrado en el corpus.` dentro de «Límites del corpus» no anula una respuesta desarrollada con citas válidas; una respuesta que solo es la negativa no tiene marcas y queda `no_evidence`.
+- En ambos modos la API vuelve a verificar todas las citas con `app.citations.validate` antes de guardar: nada sin cita verificada se publica, salvo las oraciones de enlace sin marca y sin cifras (límite ya conocido en breve).
+
+El CLI acepta `ask --mode desarrollada`, y cada pregunta del set dorado puede llevar `"mode": "desarrollada"` (`g10`, `g11`).
 
 ## Integración con la API (AT-09, AT-12)
 
@@ -24,6 +49,7 @@ result = answer_question(
     PROVIDERS["openai"],         # (system, user) -> str; "fake" en pruebas
     embedder=EMBEDDERS["openai"],  # el mismo modelo que indexó; "fake" por defecto
     year=request.year, subject=request.subject, topic=request.topic,
+    mode=request.mode,           # "breve" (por defecto) o "desarrollada"
 )
 ```
 
@@ -35,7 +61,7 @@ Resultado (`dict`), con la forma que consume `app.query.ask`:
 | `status` | `"answered"` o `"no_evidence"` (valores de `AnswerStatus`). |
 | `answer` | Texto con marcas `[n]`, donde `n` remite a `citations[n - 1]`; con `no_evidence`, `No encontrado en el corpus.` |
 | `citations` | Lista de `chunk_id`, `document_id`, `title`, `version`, `page`, `page_label`, `start`, `end`, `quote`. Corresponden a `CitationOut` con `title` → `document_title`, `version` → `document_version`, `page` → `page_number` y `position` = índice + 1. `answered` ⇒ al menos una; `no_evidence` ⇒ vacía. |
-| `invalid_citations` | Diagnóstico, no se muestra al usuario: citas rechazadas (campos de la cita y `reason`) o marcas desconocidas (`marker` y `reason`). |
+| `invalid_citations` | Diagnóstico, no se muestra al usuario: citas rechazadas (campos de la cita y `reason`), marcas desconocidas (`marker` y `reason`) y, en modo desarrollada, oraciones eliminadas (`claim` y `reason`). |
 
 `answer_question` solo lee; guardar `Answer` y `Citation` corresponde a la API. Para revalidar citas guardadas antes de devolverlas (p. ej. en el historial) se usa la función pura `verify_citations(citations, sources) -> (válidas, inválidas)`, con citas de las mismas claves que `citations`, con `db_sources(session, chunk_ids)` o `sqlite_sources(ruta, chunk_ids)`. Errores de entrada (año, límite, consulta de más de 1.000 caracteres) se lanzan como `ValueError` (`IngestionError`); errores del proveedor o de la base se propagan.
 
@@ -51,7 +77,7 @@ El proveedor `fake` de generación (`app.rag.generate.fake_provider`) toma hasta
 
 | Nombre | Uso |
 |---|---|
-| `fake` | Determinista, sin red ni claves. Devuelve la oración recuperada con más términos de la pregunta y su cita. Es el que usan pruebas y CI. |
+| `fake` | Determinista, sin red ni claves. Devuelve la oración recuperada con más términos de la pregunta y su cita; con el prompt desarrollado, los cinco títulos con la mejor oración de cada uno de los tres mejores fragmentos. Es el que usan pruebas y CI. |
 | `openai` | Cualquier API de chat compatible con OpenAI (`/chat/completions`), con `temperature` 0. |
 
 Variables del proveedor `openai`, solo en el entorno local (nunca en Git):
@@ -59,6 +85,7 @@ Variables del proveedor `openai`, solo en el entorno local (nunca en Git):
 - `ATENEO_LLM_API_KEY` (obligatoria)
 - `ATENEO_LLM_MODEL` (obligatoria)
 - `ATENEO_LLM_BASE_URL` (opcional, por defecto `https://api.openai.com/v1`)
+- `ATENEO_LLM_TIMEOUT` (opcional, segundos por llamada, 60 por defecto)
 
 No se ha fijado proveedor IA para producción.
 
@@ -69,6 +96,7 @@ Primero crear el índice de muestra según la [guía de ingestión](ingestion.md
 ```powershell
 uv run --frozen python -m app.rag ask --index ../data/sample.sqlite --question "¿Qué conserva la biblioteca ficticia?"
 uv run --frozen python -m app.rag ask --index ../data/sample.sqlite --question "¿Cuál es el término exclusivo?" --year 4
+uv run --frozen python -m app.rag ask --index ../data/sample.sqlite --question "Explica la biblioteca ficticia y la evaluación" --mode desarrollada
 uv run --frozen python -m app.rag eval --index ../data/sample.sqlite
 ```
 

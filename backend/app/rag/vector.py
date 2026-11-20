@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.models import Chunk, DocumentStatus, PageStatus
 from app.models import Document as DocumentRow
 from app.models import Page as PageRow
-from app.rag.index import content_terms, document_report
+from app.rag.index import MAX_LIMIT, content_terms, document_report
 from app.rag.ingestion import Document, IngestionError
 from app.rag.rotation import rotating
 
@@ -157,8 +157,8 @@ def search(
     """Fragmentos más cercanos por distancia coseno, con el mismo formato que el índice SQLite."""
     if year is not None and (type(year) is not int or year not in range(1, 5)):
         raise IngestionError("El año debe estar entre 1 y 4.")
-    if type(limit) is not int or not 1 <= limit <= 5:
-        raise IngestionError("El límite debe estar entre 1 y 5.")
+    if type(limit) is not int or not 1 <= limit <= MAX_LIMIT:
+        raise IngestionError(f"El límite debe estar entre 1 y {MAX_LIMIT}.")
     if len(query) > 1000:
         raise IngestionError("La consulta admite hasta 1000 caracteres.")
     [vector] = embedder([query])

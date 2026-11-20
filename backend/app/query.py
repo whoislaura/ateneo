@@ -26,6 +26,7 @@ def ask(
     year: int | None = None,
     subject: str | None = None,
     topic: str | None = None,
+    mode: str = "breve",
 ) -> dict:
     """Único punto de llamada al RAG. Devuelve, sin validar (lo hace `app.citations.validate`):
 
@@ -42,4 +43,5 @@ def ask(
         year=year,
         subject=subject,
         topic=topic,
+        mode=mode,
     )

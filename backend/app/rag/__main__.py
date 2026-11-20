@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.db import session_factory
 from app.rag import vector
-from app.rag.answer import PROVIDERS, answer_question, evaluate
+from app.rag.answer import MODES, PROVIDERS, answer_question, evaluate
 from app.rag.index import index_document, read_documents, search
 from app.rag.ingestion import ChunkSettings, DocumentMetadata, extract_pdf
 
@@ -112,6 +112,7 @@ def main(argv: list[str] | None = None) -> int:
     ask.add_argument("--subject")
     ask.add_argument("--topic")
     ask.add_argument("--provider", choices=PROVIDERS, default="fake")
+    ask.add_argument("--mode", choices=MODES, default="breve")
     golden = commands.add_parser("eval", help="Evaluar las preguntas doradas")
     golden.add_argument("--index", type=Path)
     golden.add_argument(
@@ -154,6 +155,7 @@ def main(argv: list[str] | None = None) -> int:
                 year=args.year,
                 subject=args.subject,
                 topic=args.topic,
+                mode=args.mode,
             )
         elif args.command == "eval":
             questions = json.loads(args.golden.read_text(encoding="utf-8"))

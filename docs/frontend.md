@@ -121,10 +121,13 @@ Contraseña         [____________]
 
 ```
 Consulta
+Tipo de respuesta (•) Breve ( ) Desarrollada     ← radios con estilo de chips
+Respuesta corta y directa.                       ← ayuda según el tipo
 Año [Todos ▾]  Asignatura [____]  Tema [____]   (opcionales)
 Pregunta [______________________________]
 [Consultar]
 «Consultando el corpus…»            ← role="status" mientras carga
+                                      (desarrollada: aviso de que puede tardar)
 -- Respuesta -------------------------------------------------
 Texto con marcas en línea [1] … [2]  ← cada marca abre su cita
 Fuentes
@@ -140,7 +143,7 @@ Fuentes
   +-------------------------------------------------------+
 ```
 
-`POST /queries` recibe `question` y, si se rellenan, `year`, `subject` y `topic`. Estados: vacío inicial, cargando, error (`role="alert"`, enlazado a la pregunta con `aria-describedby`), `answered` y `no_evidence` («Sin evidencia en el corpus», sin citas). Al llegar la respuesta o el error, el foco pasa al encabezado o al mensaje. Las sugerencias de asignatura y tema salen aún de `mock.ts`.
+`POST /queries` recibe `question`, `mode` y, si se rellenan, `year`, `subject` y `topic`. El selector «Tipo de respuesta» es un `fieldset.options` con dos radios (`Breve`, por defecto, y `Desarrollada`) y una ayuda enlazada con `aria-describedby`; con «Desarrollada» el mensaje de carga avisa de que puede tardar hasta un par de minutos. `AnswerText` (también usado en el detalle del Panel) renderiza `content` por líneas: `## Título` como `<h3>`, líneas `- …` seguidas como lista y el resto como párrafos; una respuesta breve es una sola línea y se ve igual que antes. El modo no se guarda, así que reabrir una respuesta la muestra con la misma estructura sin indicar el modo. Estados: vacío inicial, cargando, error (`role="alert"`, enlazado a la pregunta con `aria-describedby`), `answered` y `no_evidence` («Sin evidencia en el corpus», sin citas). Al llegar la respuesta o el error, el foco pasa al encabezado o al mensaje. Las sugerencias de asignatura y tema salen aún de `mock.ts`.
 
 El visor muestra la copia guardada de la cita y, a petición, carga `GET /documents/{id}/pages/{n}`. Si la versión vigente coincide con `document_version` y `text[start:end] == quote`, resalta el fragmento con `<mark>` y lo desplaza a la vista; si la versión cambió o el texto no coincide, lo avisa y muestra la página sin resaltar.
 
