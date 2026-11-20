@@ -1,6 +1,6 @@
 # Frontend
 
-React Router sin framework de UI ni librería de estado. Login, sesión y roles (CU-00), la consulta con visor de citas (CU-01, CU-05), la generación de material (CU-02), la gestión del corpus (CU-03), el historial (CU-04), los exámenes (CU-06) y el feedback (CU-10) usan la API real según `docs/api-contract.md`. El estado de conexión (`/api/v1/health`, `role="status"`) aparece en el pie de cada pantalla y en el login.
+React Router sin framework de UI ni librería de estado. Login, sesión y roles (CU-00), la consulta con visor de citas (CU-01, CU-05), la generación de material (CU-02), la gestión del corpus (CU-03), el historial con borrado por entrada o completo (CU-04), los exámenes (CU-06) y el feedback (CU-10) usan la API real según `docs/api-contract.md`. El estado de conexión (`/api/v1/health`, `role="status"`) aparece en el pie de cada pantalla y en el login.
 
 ## Cliente de la API
 

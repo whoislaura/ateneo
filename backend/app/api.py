@@ -6,7 +6,7 @@ Los permisos por rol (AT-08) se aplican: 401 sin sesión y 403 sin rol.
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from app import citations, corpus, exams, generation, query
@@ -366,6 +366,70 @@ def list_history(
     )
     rows = db.scalars(statement)
     return [HistoryEntryOut.model_validate(row, from_attributes=True) for row in rows]
+
+
+def delete_answers(db: Session, answer_ids: list[int]) -> None:
+    """Borra respuestas y citas; el feedback queda desvinculado."""
+    if not answer_ids:
+        return
+    db.execute(
+        update(Feedback).where(Feedback.answer_id.in_(answer_ids)).values(answer_id=None)
+    )
+    db.execute(delete(Citation).where(Citation.answer_id.in_(answer_ids)))
+    db.execute(delete(Answer).where(Answer.id.in_(answer_ids)))
+
+
+def deletable_history(
+    db: Session, entry_id: int, user: User, action: tuple[HistoryAction, ...]
+) -> HistoryEntry:
+    entry = db.get(HistoryEntry, entry_id)
+    if entry is None or entry.user_id != user.id or entry.action not in action:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Entrada de historial no encontrada.")
+    return entry
+
+
+@router.delete(
+    "/history/{entry_id}", status_code=204, responses=NOT_FOUND, dependencies=STUDY,
+    tags=["historial"],
+)
+def delete_history_entry(
+    entry_id: int,
+    user: Annotated[User, Depends(current_user)],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Autor. Borra una consulta o generación y su respuesta guardada."""
+    entry = deletable_history(
+        db, entry_id, user, (HistoryAction.QUERY, HistoryAction.GENERATION)
+    )
+    if entry.answer_id is not None:
+        delete_answers(db, [entry.answer_id])
+    db.delete(entry)
+    db.commit()
+
+
+@router.delete("/history", status_code=204, dependencies=STUDY, tags=["historial"])
+def clear_history(
+    user: Annotated[User, Depends(current_user)],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Autor. Borra todas sus consultas y generaciones con sus respuestas."""
+    study = (HistoryAction.QUERY, HistoryAction.GENERATION)
+    answer_ids = list(
+        db.scalars(
+            select(HistoryEntry.answer_id).where(
+                HistoryEntry.user_id == user.id,
+                HistoryEntry.action.in_(study),
+                HistoryEntry.answer_id.is_not(None),
+            )
+        )
+    )
+    delete_answers(db, answer_ids)
+    db.execute(
+        delete(HistoryEntry).where(
+            HistoryEntry.user_id == user.id, HistoryEntry.action.in_(study)
+        )
+    )
+    db.commit()
 
 
 # CU-06
