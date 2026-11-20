@@ -99,6 +99,12 @@ export interface IngestionReport {
   chunk_settings: Record<string, number>
 }
 
+export const documentStatusLabels: Record<DocumentStatus, string> = {
+  indexed: 'Indexado',
+  partial: 'Indexado con páginas sin texto',
+  retired: 'Retirado',
+}
+
 // --- fin CU-03 ---
 
 export class ApiError extends Error {
@@ -179,6 +185,13 @@ export function errorMessage(err: unknown): string {
 // CU-02 (AT-22): generación de material. La estructura de `content` por formato está en docs/api-contract.md.
 
 export type GenerationFormat = 'summary' | 'outline' | 'table' | 'diagram'
+
+export const formatLabels: Record<GenerationFormat, string> = {
+  summary: 'Resumen',
+  outline: 'Esquema',
+  table: 'Cuadro comparativo',
+  diagram: 'Diagrama de texto',
+}
 
 export interface GenerationRequest {
   format: GenerationFormat

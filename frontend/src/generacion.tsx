@@ -1,15 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router'
-import { api, errorMessage, type Answer, type Citation, type GenerationFormat, type GenerationRequest } from './api'
+import { api, errorMessage, formatLabels as formats, type Answer, type Citation, type GenerationFormat, type GenerationRequest } from './api'
 import { Citations, MarkedText } from './consulta'
 import { CorpusOptions } from './CorpusOptions'
-
-const formats: Record<GenerationFormat, string> = {
-  summary: 'Resumen',
-  outline: 'Esquema',
-  table: 'Cuadro comparativo',
-  diagram: 'Diagrama de texto',
-}
 
 type Marked = { citas: Citation[]; onSelect: (position: number) => void }
 
@@ -118,7 +111,7 @@ export function Generacion() {
 const lines = (content: string) => content.split('\n').filter((line) => line.trim())
 
 /** Renderiza `content` según la estructura del formato (docs/api-contract.md, CU-02). */
-function Material({ answer, ...marked }: { answer: Answer } & Marked) {
+export function Material({ answer, ...marked }: { answer: Answer } & Marked) {
   const rows = lines(answer.content)
   if (answer.kind === 'outline') return <Outline items={outline(rows)} {...marked} />
   if (answer.kind === 'table') return <Table rows={rows} caption={answer.question} {...marked} />
