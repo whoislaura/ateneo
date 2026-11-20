@@ -27,6 +27,8 @@ CONTRACT = {
     ("delete", "/api/v1/documents/{document_id}"),
     ("get", "/api/v1/documents/{document_id}/pages/{page_number}"),
     ("get", "/api/v1/history"),
+    ("delete", "/api/v1/history"),
+    ("delete", "/api/v1/history/{entry_id}"),
     ("post", "/api/v1/exams"),
     ("get", "/api/v1/exams"),
     ("get", "/api/v1/exams/{exam_id}"),

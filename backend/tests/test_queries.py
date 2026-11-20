@@ -21,11 +21,13 @@ from app.models import (
     Citation,
     Document,
     DocumentStatus,
+    Feedback,
     HistoryAction,
     HistoryEntry,
     Page,
     PageStatus,
     Role,
+    User,
 )
 from app.rag import vector
 from app.rag.ingestion import DocumentMetadata, extract_pdf
@@ -229,6 +231,63 @@ def test_history_lists_only_own_study_actions_in_order(client, factory):
     assert [item["summary"] for item in client.get(path, headers=teacher).json()] == [
         "Consulta del profesor."
     ]
+
+
+def test_delete_history_entry_removes_answer_and_keeps_feedback(client, factory):
+    student = client.headers_for[Role.STUDENT]
+    answer = ask(client, question="¿Qué conserva la biblioteca?").json()
+    feedback = client.post(
+        "/api/v1/feedback",
+        json={"kind": "rating", "rating": 5, "answer_id": answer["id"]},
+        headers=student,
+    )
+    assert feedback.status_code == 201
+    [entry] = client.get("/api/v1/history", headers=student).json()
+
+    path = f"/api/v1/history/{entry['id']}"
+    assert client.delete(path, headers=client.headers_for[Role.TEACHER]).status_code == 404
+    assert client.delete(path, headers=client.headers_for[Role.ADMIN]).status_code == 403
+    assert client.delete(path, headers=student).status_code == 204
+    assert client.get("/api/v1/history", headers=student).json() == []
+    assert client.get(f"/api/v1/answers/{answer['id']}", headers=student).status_code == 404
+    assert client.delete(path, headers=student).status_code == 404
+
+    with factory() as db:
+        assert db.get(Feedback, feedback.json()["id"]).answer_id is None
+        assert db.scalar(select(func.count()).select_from(Citation)) == 0
+
+
+def test_clear_history_keeps_documents_and_exams(client, factory):
+    student = client.headers_for[Role.STUDENT]
+    for _ in range(2):
+        assert ask(client, question="¿Qué conserva la biblioteca?").status_code == 201
+    generated = client.post(
+        "/api/v1/generations",
+        json={"format": "summary", "prompt": "Resume el préstamo."},
+        headers=student,
+    )
+    assert generated.status_code == 201
+    with factory() as db:
+        user = db.scalar(select(User).where(User.email == "student@ateneo.cu"))
+        db.add_all(
+            [
+                HistoryEntry(
+                    user_id=user.id, action=HistoryAction.DOCUMENT_UPLOAD, summary="Carga"
+                ),
+                HistoryEntry(user_id=user.id, action=HistoryAction.EXAM, summary="Examen"),
+            ]
+        )
+        db.commit()
+
+    admin = client.headers_for[Role.ADMIN]
+    assert client.delete("/api/v1/history", headers=admin).status_code == 403
+    assert client.delete("/api/v1/history", headers=student).status_code == 204
+    assert client.get("/api/v1/history", headers=student).json() == []
+    with factory() as db:
+        actions = set(db.scalars(select(HistoryEntry.action)))
+        assert actions == {HistoryAction.DOCUMENT_UPLOAD, HistoryAction.EXAM}
+        assert db.scalar(select(func.count()).select_from(Answer)) == 0
+        assert db.scalar(select(func.count()).select_from(Citation)) == 0
 
 
 def test_query_roles_and_validation(client):
