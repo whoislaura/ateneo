@@ -4,10 +4,19 @@ import json
 import re
 import sqlite3
 import unicodedata
+from collections.abc import Iterator
 from contextlib import closing
 from pathlib import Path
 
-from app.rag.ingestion import Document, IngestionError
+from app.rag.ingestion import (
+    Chunk,
+    ChunkSettings,
+    Document,
+    DocumentMetadata,
+    IngestionError,
+    Page,
+    chunk_page,
+)
 
 SCHEMA = (
     "CREATE TABLE ateneo_meta (schema_version INTEGER NOT NULL)",
@@ -130,6 +139,48 @@ def document_report(document: Document) -> dict:
         else [],
         "chunk_settings": json.loads(document.settings.model_dump_json()),
     }
+
+
+def read_documents(path: Path) -> Iterator[Document]:
+    """Lee el índice sin modificarlo ni volver a extraer los PDF (conserva el OCR)."""
+    with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)) as connection:
+        connection.execute("BEGIN")  # Metadatos y texto de una misma instantánea.
+        check_schema(connection)
+        connection.row_factory = sqlite3.Row
+        for row in connection.execute("SELECT * FROM documents ORDER BY document_id"):
+            identifier = row["document_id"]
+            metadata = DocumentMetadata.model_validate(
+                {key: row[key] for key in DocumentMetadata.model_fields}
+            )
+            settings = ChunkSettings.model_validate_json(row["settings"])
+            pages = [
+                Page(*p)
+                for p in connection.execute(
+                    "SELECT number, label, text, status FROM pages "
+                    "WHERE document_id = ? ORDER BY number",
+                    (identifier,),
+                )
+            ]
+            chunk_rows = connection.execute(
+                "SELECT chunk_id, page_number, start, end, text, version FROM chunks "
+                "WHERE document_id = ? ORDER BY CAST(page_number AS INTEGER), "
+                "CAST(start AS INTEGER), chunk_id",
+                (identifier,),
+            ).fetchall()
+            chunks = [Chunk(*c[:5]) for c in chunk_rows]
+            if (
+                not pages
+                or any(
+                    p.number != i or p.status != ("text" if p.text else "no_text")
+                    for i, p in enumerate(pages, 1)
+                )
+                or not re.fullmatch(r"[0-9a-f]{64}", row["version"])
+                or any(c["version"] != row["version"] for c in chunk_rows)
+                or chunks
+                != [c for p in pages for c in chunk_page(p, identifier, row["version"], settings)]
+            ):
+                raise IngestionError(f"Texto o referencias inconsistentes: {identifier}.")
+            yield Document(metadata, row["filename"], row["version"], settings, pages, chunks)
 
 
 def search(
