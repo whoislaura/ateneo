@@ -8,7 +8,8 @@ concurrency:
   group: deploy-${{ github.ref }}
   cancel-in-progress: false
 env:
-  IMAGE_REPO: ghcr.io/whoislaura/ateneo
+  # Deriva del repositorio para que sobreviva a una transferencia; GHCR exige minúsculas (${IMAGE_REPO,,}).
+  IMAGE_REPO: ghcr.io/${{ github.repository }}
 jobs:
   ci:
     uses: ./.github/workflows/ci.yml
@@ -26,7 +27,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - run: |
           for service in api:backend web:frontend; do
-            image="$IMAGE_REPO/${service%%:*}:$GITHUB_SHA"
+            image="${IMAGE_REPO,,}/${service%%:*}:$GITHUB_SHA"
             docker build -t "$image" "${service#*:}"
             docker push "$image"
           done
@@ -69,7 +70,7 @@ jobs:
           scp -i ~/.ssh/id_deploy -P "$DEPLOY_PORT" infra/backup.sh "$target:$DEPLOY_PATH/infra/"
           ssh -i ~/.ssh/id_deploy -p "$DEPLOY_PORT" "$target" "set -e
             cd '$DEPLOY_PATH'
-            export IMAGE_TAG='$GITHUB_SHA' COMPOSE_FILE=compose.yaml:compose.prod.yaml
+            export IMAGE_REPO='${IMAGE_REPO,,}' IMAGE_TAG='$GITHUB_SHA' COMPOSE_FILE=compose.yaml:compose.prod.yaml
             docker compose pull --quiet
             # La API aplica las migraciones al arrancar; --wait falla si no llega a healthy.
             docker compose up -d --wait --wait-timeout 180

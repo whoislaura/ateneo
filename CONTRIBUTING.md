@@ -9,13 +9,13 @@
 ## Flujo
 
 1. Elegir una issue del sprint y revisar sus dependencias.
-2. Actualizar `staging` y crear una rama corta `feat/numero-descripcion`, `fix/numero-descripcion` o `chore/numero-descripcion`.
+2. Actualizar `main` y crear una rama corta `feat/numero-descripcion`, `fix/numero-descripcion` o `chore/numero-descripcion`.
 3. Implementar y ejecutar los checks relevantes del README.
-4. Abrir un pull request contra `staging`, enlazar la issue y describir la verificación.
+4. Abrir un pull request contra `main`, enlazar la issue y describir la verificación.
 5. Obtener una aprobación de otro integrante y los tres checks CI satisfactorios; integrar con squash y eliminar la rama de trabajo.
-6. Para publicar en producción, abrir un PR `staging` → `main` e integrarlo con merge commit. Cada push a `staging` o `main` despliega en su entorno ([despliegue](docs/deployment.md)).
+6. Cada push a `main` (es decir, cada PR integrado) pasa CI, publica las imágenes y despliega en `production` si el entorno está configurado ([despliegue](docs/deployment.md)).
 
-`staging` y `main` quedan protegidas frente a pushes forzados y borrado. No se usa una rama permanente por persona. Los cambios de contratos se coordinan con Pedro; las referencias documento/página con Laura; los estados de interfaz con Ray.
+`main` queda protegida frente a pushes forzados y borrado. No hay rama `staging` permanente: si el cliente quiere un servidor de preproducción, se activa como indica [despliegue](docs/deployment.md#entorno-de-preproducción-opcional). No se usa una rama permanente por persona. Los cambios de contratos se coordinan con Pedro; las referencias documento/página con Laura; los estados de interfaz con Ray.
 
 `CODEOWNERS` solicita revisión por área una vez que los colaboradores aceptan la invitación. Al iniciar Sprint 1, actualizar infraestructura, Compose y workflows para que Pedro sea su responsable, según la tarea DevOps ya asignada.
 
