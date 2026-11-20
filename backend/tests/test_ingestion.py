@@ -153,7 +153,7 @@ def test_index_search_filters_and_page_provenance(sample, tmp_path):
             (hit["document_id"], hit["page_number"]),
         ).fetchone()[0]
         assert text[hit["start"] : hit["end"]] == hit["text"]
-        assert connection.execute("SELECT count(*) FROM pages").fetchone()[0] == 5
+        assert connection.execute("SELECT count(*) FROM pages").fetchone()[0] == 6
     assert len(search(index, "biblioteca")) == 2
     assert (
         len(
