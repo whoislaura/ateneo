@@ -36,6 +36,9 @@ SCHEMA = (
 )
 
 
+# Tope de fragmentos por búsqueda: 5 en modo breve, más candidatos en modo desarrollada.
+MAX_LIMIT = 60
+
 # shortcut: lista mínima de palabras vacías; sustituir al evaluar con preguntas reales.
 STOPWORDS = frozenset(
     """a al algo como con cual cuales cuando de del donde el en es esta este esto la las
@@ -194,8 +197,8 @@ def search(
 ) -> list[dict]:
     if year is not None and (type(year) is not int or year not in range(1, 5)):
         raise IngestionError("El año debe estar entre 1 y 4.")
-    if type(limit) is not int or not 1 <= limit <= 5:
-        raise IngestionError("El límite debe estar entre 1 y 5.")
+    if type(limit) is not int or not 1 <= limit <= MAX_LIMIT:
+        raise IngestionError(f"El límite debe estar entre 1 y {MAX_LIMIT}.")
     if len(query) > 1000:
         raise IngestionError("La consulta admite hasta 1000 caracteres.")
     terms = list(dict.fromkeys(re.findall(r"[^\W_]+", unicodedata.normalize("NFC", query))))

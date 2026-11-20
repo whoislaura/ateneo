@@ -22,11 +22,15 @@ export interface TokenResponse {
   user: User
 }
 
+export type QueryMode = 'breve' | 'desarrollada'
+
 export interface QueryRequest {
   year?: number
   subject?: string
   topic?: string
   question: string
+  /** Por defecto «breve»; la respuesta no lo devuelve. */
+  mode?: QueryMode
 }
 
 export interface Citation {

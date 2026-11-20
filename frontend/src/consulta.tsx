@@ -1,9 +1,14 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router'
-import { api, errorMessage, type Answer, type Citation, type Page, type QueryRequest } from './api'
+import { api, errorMessage, type Answer, type Citation, type Page, type QueryMode, type QueryRequest } from './api'
 import { CorpusOptions } from './CorpusOptions'
 
 const pageName = (cita: Citation) => `p. ${cita.page_label ?? cita.page_number}`
+
+const modes: Record<QueryMode, { label: string; hint: string }> = {
+  breve: { label: 'Breve', hint: 'Respuesta corta y directa.' },
+  desarrollada: { label: 'Desarrollada', hint: 'Planteamiento, desarrollo, fundamentación, conclusión y límites del corpus; tarda más.' },
+}
 
 export function Consulta() {
   const [state, setState] = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
@@ -11,6 +16,7 @@ export function Consulta() {
   const [error, setError] = useState('')
   const [selected, setSelected] = useState<number | null>(null)
   const [subject, setSubject] = useState('')
+  const [mode, setMode] = useState<QueryMode>('breve')
   const focusRef = useRef<HTMLElement>(null)
 
   // Lleva el foco al resultado o al error cuando llega la respuesta.
@@ -23,7 +29,7 @@ export function Consulta() {
     const data = new FormData(event.currentTarget)
     const text = (name: string) => String(data.get(name) ?? '').trim() || undefined
     const year = text('year')
-    const body: QueryRequest = { year: year ? Number(year) : undefined, subject: text('subject'), topic: text('topic'), question: text('question') ?? '' }
+    const body: QueryRequest = { year: year ? Number(year) : undefined, subject: text('subject'), topic: text('topic'), question: text('question') ?? '', mode }
     setState('loading')
     setSelected(null)
     try {
@@ -39,6 +45,15 @@ export function Consulta() {
     <>
       <h1>Consulta</h1>
       <form className="card" onSubmit={submit} aria-busy={state === 'loading'}>
+        <fieldset className="options" aria-describedby="modo-ayuda">
+          <legend>Tipo de respuesta</legend>
+          {Object.entries(modes).map(([value, { label }]) => (
+            <label key={value} className="choice">
+              <input type="radio" name="mode" value={value} checked={mode === value} onChange={() => setMode(value as QueryMode)} /> {label}
+            </label>
+          ))}
+        </fieldset>
+        <p id="modo-ayuda" className="note">{modes[mode].hint}</p>
         <p className="note">Año, asignatura y tema son opcionales y acotan la búsqueda en el corpus.</p>
         <div className="fields">
           <label>
@@ -68,7 +83,7 @@ export function Consulta() {
         <button type="submit" disabled={state === 'loading'}>Consultar</button>
       </form>
 
-      <p role="status" className="loading">{state === 'loading' ? 'Consultando el corpus…' : ''}</p>
+      <p role="status" className="loading">{state === 'loading' ? (mode === 'desarrollada' ? 'Redactando una respuesta desarrollada a partir del corpus; puede tardar hasta un par de minutos…' : 'Consultando el corpus…') : ''}</p>
 
       {state === 'idle' && <p className="empty">Aún no has hecho ninguna consulta.</p>}
 
@@ -92,8 +107,21 @@ export function Consulta() {
   )
 }
 
-function AnswerText({ answer, onSelect }: { answer: Answer; onSelect: (position: number) => void }) {
-  return <p className="answer"><MarkedText text={answer.content} citas={answer.citations} onSelect={onSelect} /></p>
+/** Respuesta de consulta: una línea es un párrafo, «## Título» un encabezado y «- …» un elemento de lista. */
+export function AnswerText({ answer, onSelect }: { answer: Answer; onSelect: (position: number) => void }) {
+  const blocks: (string | string[])[] = []
+  for (const line of answer.content.split('\n').map((row) => row.trim()).filter(Boolean)) {
+    const last = blocks[blocks.length - 1]
+    if (!line.startsWith('- ')) blocks.push(line)
+    else if (Array.isArray(last)) last.push(line.slice(2))
+    else blocks.push([line.slice(2)])
+  }
+  const marked = (text: string) => <MarkedText text={text} citas={answer.citations} onSelect={onSelect} />
+  return blocks.map((block, i) => {
+    if (Array.isArray(block)) return <ul key={i} className="outline">{block.map((item, j) => <li key={j}>{marked(item)}</li>)}</ul>
+    if (block.startsWith('## ')) return <h3 key={i} className="answer-heading">{block.slice(3)}</h3>
+    return <p key={i} className="answer">{marked(block)}</p>
+  })
 }
 
 /** Muestra el texto convirtiendo las marcas [n] en botones que abren la cita n. */

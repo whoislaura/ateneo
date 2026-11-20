@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useSearchParams } from 'react-router'
 import type { Answer } from '../api'
 import type { AdminAnswer } from '../admin-api'
-import { Citations, MarkedText } from '../consulta'
+import { AnswerText, Citations } from '../consulta'
 import { Material } from '../generacion'
 import { answerStatusLabels, dateTime, kindLabels, pageSize } from './labels'
 import { ListState, Pager, UserCell } from './shared'
@@ -124,7 +124,7 @@ function AnswerDetail({ id, onClose }: { id: string; onClose: () => void }) {
           {answer.status === 'no_evidence'
             ? <p className="status">{answer.content || 'El corpus no contiene material que respalde una respuesta.'}</p>
             : answer.kind === 'query'
-              ? <p className="answer"><MarkedText text={answer.content} citas={answer.citations} onSelect={setSelected} /></p>
+              ? <AnswerText answer={answer} onSelect={setSelected} />
               : <Material answer={answer} citas={answer.citations} onSelect={setSelected} />}
           {answer.citations.length > 0 && <Citations citas={answer.citations} selected={selected} onSelect={setSelected} />}
         </>
