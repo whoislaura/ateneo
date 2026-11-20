@@ -3,6 +3,7 @@
 Los permisos por rol (AT-08) se aplican: 401 sin sesión y 403 sin rol.
 """
 
+import logging
 import math
 from typing import Annotated
 
@@ -63,6 +64,21 @@ from app.schemas import (
 ERRORS = {code: {"model": ErrorResponse} for code in (401, 403, 422, 501)}
 NOT_FOUND = {404: {"model": ErrorResponse}}
 UNAVAILABLE = {503: {"model": ErrorResponse}}
+ai_log = logging.getLogger("ateneo.ai")
+
+
+def ai_unavailable(exc: Exception, message: str) -> HTTPException:
+    """503 del contrato, registrando la causa (tipo, código HTTP y mensaje del proveedor)."""
+    cause = f"{type(exc).__name__} {getattr(exc, 'code', '')}".strip()
+    if hasattr(exc, "read"):  # HTTPError: el cuerpo trae el motivo del proveedor, nunca la clave
+        try:
+            cause += f": {exc.read()[:300].decode('utf-8', 'replace')}"
+        except OSError:
+            pass
+    elif str(exc):
+        cause += f": {str(exc)[:300]}"
+    ai_log.warning("ai_error", extra={"error": cause})
+    return HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, message)
 
 public = APIRouter(prefix="/api/v1", responses=ERRORS)
 router = APIRouter(prefix="/api/v1", responses=ERRORS, dependencies=[Depends(current_user)])
@@ -163,9 +179,7 @@ def create_query(
     try:
         result = query.ask(db, body.question, **filters)
     except (ValueError, OSError) as exc:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE, "El servicio de respuestas no está disponible."
-        ) from exc
+        raise ai_unavailable(exc, "El servicio de respuestas no está disponible.") from exc
     answer_status, content, valid = citations.validate(db, result)
     answer = Answer(
         user_id=user.id,
@@ -205,9 +219,7 @@ def create_generation(
     try:
         result = generation.generate(db, body.format, body.prompt, **filters)
     except (ValueError, OSError) as exc:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE, "El servicio de generación no está disponible."
-        ) from exc
+        raise ai_unavailable(exc, "El servicio de generación no está disponible.") from exc
     answer_status, content, valid = citations.validate(db, result)
     # La salida final debe conservar la estructura pedida tras renumerar las citas.
     if answer_status == AnswerStatus.ANSWERED and not generation.well_formed(body.format, content):

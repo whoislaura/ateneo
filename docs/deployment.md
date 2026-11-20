@@ -165,7 +165,7 @@ Entorno gratuito para enseñar la aplicación al cliente; no sustituye a producc
 
 5. Crear también una cuenta `teacher` para el smoke, cargar el corpus de muestra y comprobar el flujo completo (abajo); después, seguir [la guía de demostración](demo.md).
 
-IA: el modelo de lenguaje es real, vía [OpenRouter](https://openrouter.ai) (`ATENEO_LLM_MODEL` en `render.yaml`, un modelo `:free`). La clave (`ATENEO_LLM_API_KEYS`) se pone en Render → `ateneo-api` → *Environment*; nunca en el repositorio. Los modelos gratuitos admiten 20 peticiones por minuto y 50 al día por cuenta (1000 tras una compra única de 10 USD); las peticiones fallidas también cuentan, y varias claves de la misma cuenta no suman cuota. Al agotarse, consulta y generación responden 503. Los embeddings siguen en `fake`: pasar a unos reales obliga a resubir el corpus. Para volver al modo sin red, `ATENEO_LLM_PROVIDER=fake`.
+IA: el modelo de lenguaje es real, vía [OpenRouter](https://openrouter.ai) (`ATENEO_LLM_MODEL` en `render.yaml`, un modelo `:free`; Gemma de Google AI Studio rechaza el mensaje de sistema que usa Ateneo, por eso se usa Nemotron). La clave (`ATENEO_LLM_API_KEYS`) se pone en Render → `ateneo-api` → *Environment*; nunca en el repositorio. Los modelos gratuitos admiten 20 peticiones por minuto y 50 al día por cuenta (1000 tras una compra única de 10 USD); las peticiones fallidas también cuentan, y varias claves de la misma cuenta no suman cuota. Al agotarse, consulta y generación responden 503. Los embeddings siguen en `fake`: pasar a unos reales obliga a resubir el corpus. Para volver al modo sin red, `ATENEO_LLM_PROVIDER=fake`.
 
 Límites: la API se duerme tras 15 minutos sin uso y tarda alrededor de un minuto en despertar, así que conviene abrirla antes de la reunión.
 
