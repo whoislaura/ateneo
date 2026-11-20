@@ -154,9 +154,24 @@ Entorno gratuito para enseñar la aplicación al cliente; no sustituye a producc
    DATABASE_URL='postgresql+psycopg://...' uv run python -m app.auth create-user admin@upr.edu.cu --name "Admin Demo" --role admin
    ```
 
-5. Subir el corpus de muestra desde la pantalla Corpus y seguir [la guía de demostración](demo.md).
+5. Crear también una cuenta `teacher` para el smoke, cargar el corpus de muestra y comprobar el flujo completo (abajo); después, seguir [la guía de demostración](demo.md).
 
 Límites: la IA es `fake` (cambiar `ATENEO_LLM_PROVIDER`/`ATENEO_EMBEDDER` y sus claves en Render para usar una real); la API se duerme tras 15 minutos sin uso y tarda alrededor de un minuto en despertar, así que conviene abrirla antes de la reunión.
+
+### Smoke integral
+
+Dos scripts que solo usan HTTPS contra la URL pública (sirven también donde la red bloquea PostgreSQL) y valen para Docker local, Render o el servidor institucional. Ambos leen la cuenta de profesor de `ATENEO_SMOKE_EMAIL` y `ATENEO_SMOKE_PASSWORD`; nunca imprimen la contraseña ni el token. Desde la raíz del repositorio:
+
+```sh
+export ATENEO_SMOKE_EMAIL=profesor@upr.edu.cu
+read -rs ATENEO_SMOKE_PASSWORD && export ATENEO_SMOKE_PASSWORD
+uv run --project backend python infra/demo_corpus.py https://ateneo-web.onrender.com
+python infra/smoke.py https://ateneo-web.onrender.com
+```
+
+- `infra/demo_corpus.py` genera los PDF con `app.rag.sample` (ReportLab, dependencia de desarrollo) y sube `muestra-a` y `muestra-b` con los metadatos de su JSON. Es idempotente: si el documento ya existe (409) lo sustituye con `PUT`, que reindexa y lo reactiva si estaba retirado. `--con-inyeccion` añade `muestra-c`, el documento con una instrucción incrustada para QA; no conviene en una demo.
+- `infra/smoke.py` hace las comprobaciones técnicas de siempre (reintenta la salud durante unos minutos por el arranque en frío de Render) y, si las dos variables están definidas, inicia sesión, lee `/auth/me`, lista documentos, consulta «¿Dónde aparece azafrán?» exigiendo `answered` con una cita no vacía, genera un resumen, crea un examen y lee sus soluciones, busca la consulta en el historial, envía feedback y cierra la sesión. Imprime `OK`/`FAIL` por paso y sale con código distinto de cero al primer fallo. La comprobación de pgvector con `docker compose` solo se hace contra `localhost`/`127.0.0.1`; en remoto la cubre la consulta.
+- Cada ejecución deja en la cuenta una consulta, una generación, un examen y un feedback; usar una cuenta dedicada al smoke. Cinco logins fallidos seguidos bloquean la cuenta 15 minutos (429).
 
 ## Datos aún desconocidos del servidor
 
