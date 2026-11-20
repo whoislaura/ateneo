@@ -81,7 +81,7 @@ export function Examen() {
   return (
     <>
       <h1>Examen</h1>
-      <form onSubmit={generate}>
+      <form className="card" onSubmit={generate}>
         <fieldset disabled={pending}>
           <legend>Configurar examen</legend>
           <div className="fields">
@@ -108,15 +108,15 @@ export function Examen() {
         </fieldset>
       </form>
 
-      <section aria-labelledby="saved-exams">
+      <section aria-labelledby="saved-exams" className="card">
         <h2 id="saved-exams">Exámenes guardados</h2>
-        {listStatus && <p role="status">{listStatus}</p>}
+        {listStatus && <p role="status" className="loading">{listStatus}</p>}
         {listError && <p role="alert" className="status error">{listError}</p>}
-        {!listStatus && !listError && !exams.length && <p>Tu lista está vacía.</p>}
+        {!listStatus && !listError && !exams.length && <p className="empty">Tu lista está vacía.</p>}
         {exams.length > 0 && (
-          <ul>{exams.map((item) => (
+          <ul className="exam-list">{exams.map((item) => (
             <li key={item.id}>
-              <button type="button" disabled={pending} onClick={() => open(item)}>
+              <button type="button" className="secondary" disabled={pending} onClick={() => open(item)} aria-current={item.id === exam?.id || undefined}>
                 Examen {item.id} · {item.subject} · {difficultyLabels[item.difficulty]}
               </button>
             </li>
@@ -124,13 +124,13 @@ export function Examen() {
         )}
       </section>
 
-      {pending && <p role="status">Cargando…</p>}
+      {pending && <p role="status" className="loading">Cargando…</p>}
       {error && <p role="alert" className="status error">{error}</p>}
       {exam && (
         <section className="result" aria-labelledby="active-exam">
           <h2 id="active-exam">{exam.subject}{exam.topic && ` · ${exam.topic}`}</h2>
           <form key={exam.id} onSubmit={reveal}>
-            <ol>
+            <ol className="questions">
               {exam.questions.map((question) => {
                 const solution = answers.find((item) => item.question_id === question.id)
                 return (
@@ -138,7 +138,7 @@ export function Examen() {
                     <label>{question.statement}<input name={String(question.id)} autoComplete="off" /></label>
                     {solution && (
                       <>
-                        <p>Respuesta esperada: {solution.answer}</p>
+                        <p className="solution">Respuesta esperada: {solution.answer}</p>
                         {solution.citations.map((citation) => (
                           <blockquote className="source" key={citation.position}>
                             <p>{citation.quote}</p>
@@ -154,9 +154,9 @@ export function Examen() {
             <button type="submit" disabled={pending || answers.length > 0}>
               {answers.length > 0 ? 'Respuestas mostradas' : 'Ver respuestas'}
             </button>
-            {answers.length > 0 && <p role="status">Respuestas y fuentes cargadas.</p>}
+            {answers.length > 0 && <p role="status" className="status ok">Respuestas y fuentes cargadas.</p>}
           </form>
-          <Link to={`/feedback?exam_id=${exam.id}`}>Enviar feedback de este examen</Link>
+          <Link className="feedback-link" to={`/feedback?exam_id=${exam.id}`}>Enviar feedback de este examen</Link>
         </section>
       )}
     </>
@@ -199,9 +199,9 @@ export function Feedback() {
   return (
     <>
       <h1>Feedback</h1>
-      {answerId && <p>Sobre la respuesta {answerId}</p>}
-      {examId && <p>Sobre el examen {examId}</p>}
-      <form onSubmit={submit}>
+      {answerId && <p className="note">Sobre la respuesta {answerId}</p>}
+      {examId && <p className="note">Sobre el examen {examId}</p>}
+      <form className="card" onSubmit={submit}>
         <fieldset disabled={state === 'saving'}>
           <legend>Enviar feedback</legend>
           <label>Tipo
@@ -212,7 +212,7 @@ export function Feedback() {
             </select>
           </label>
           {kind === 'rating' && (
-            <fieldset>
+            <fieldset className="options">
               <legend>Valoración</legend>
               {[1, 2, 3, 4, 5].map((value) => (
                 <label key={value} className="choice">
@@ -225,7 +225,7 @@ export function Feedback() {
           <button type="submit">{state === 'saving' ? 'Enviando…' : 'Enviar feedback'}</button>
         </fieldset>
       </form>
-      {state === 'saved' && <p role="status">Tu feedback se guardó.</p>}
+      {state === 'saved' && <p role="status" className="status ok">Tu feedback se guardó.</p>}
       {error && <p role="alert" className="status error">{error}</p>}
     </>
   )

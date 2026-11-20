@@ -55,24 +55,57 @@ La matriz sigue la tabla de endpoints del contrato (consulta, generación, histo
 ```
 +--------------------------------------------------------------+
 | [Saltar al contenido]                                        |
-| Ateneo   Consulta Generación ...  Nombre · Profesor [Cerrar] |
-+--------------------------------------------------------------+
-| <main> contenido de la pantalla                              |
-+--------------------------------------------------------------+
-| [Estado de conexión]  Aviso de pantallas aún simuladas       |
-+--------------------------------------------------------------+
+| [icono] Ateneo                 (N) Nombre [Profesor] [Salir] |  ← barra superior fija
++------------+-------------------------------------------------+
+| Consulta   | <main> contenido (máx. 1040 px, centrado)        |
+| Generación |   tarjetas (.card) con formularios y resultados  |
+| ...        |                                                 |
+| (lateral)  | [● Conexión disponible]          Proyecto Ateneo |
++------------+-------------------------------------------------+
 ```
 
-La navegación muestra solo las pantallas del rol. Al cambiar de ruta, el foco pasa al contenido principal.
+La navegación (`<nav class="sidebar">`) muestra solo las pantallas del rol: barra lateral en escritorio y franja horizontal desplazable bajo la cabecera por debajo de 900 px (sin JavaScript extra). Por debajo de 600 px el nombre del usuario y el texto de «Cerrar sesión» se ocultan solo a la vista (los lectores de pantalla los siguen leyendo). Al cambiar de ruta, el foco pasa al contenido principal.
+
+## Sistema visual
+
+Todo el estilo vive en `frontend/src/style.css` (CSS plano, sin dependencias). Los valores se definen como propiedades personalizadas en `:root` y el tema oscuro (`prefers-color-scheme: dark`) solo redefine los colores:
+
+- **Color:** `--primary` (azul académico) con `--primary-hover`, `--primary-soft` y `--on-primary`; neutros `--bg`, `--surface`, `--surface-2`, `--border`, `--border-strong`, `--text`, `--text-muted`; estados `--success`, `--warning`, `--danger` con su fondo `*-bg`; `--accent` (bronce) para citas y `--mark` para el resaltado; `--focus` para el anillo de foco. Todos los pares de texto cumplen WCAG AA (≥ 4,5:1; bordes de campos y foco ≥ 3:1) en ambos temas.
+- **Espaciado:** `--space-1` … `--space-7` (4, 8, 12, 16, 24, 32, 48 px). **Radios:** `--radius-sm`, `--radius`, `--radius-lg`, `--radius-pill`. **Sombras:** `--shadow-sm`, `--shadow`, `--shadow-lg`.
+- **Tipografía:** pilas del sistema, sin descargar fuentes (la app funciona sin acceso a Internet): `--font-sans` para la interfaz, `--font-serif` para títulos, la respuesta y el texto de las fuentes (lectura de documento), `--font-mono` para identificadores y el diagrama. Escala `--text-xs` … `--text-2xl`.
+
+Convenciones de clases:
+
+| Clase | Uso |
+|---|---|
+| `.card` | Panel blanco con borde y sombra para formularios y listas; si contiene un único `fieldset`, su `legend` hace de título |
+| `.result` | Tarjeta de resultado (respuesta, material generado, examen activo) |
+| `button` / `.secondary` / `.danger` / `.secondary.danger` / `.small` / `.link` | Acción principal, secundaria, destructiva (confirmar retirada), destructiva atenuada (en tablas), tamaño compacto y botón con aspecto de enlace |
+| `.fields` | Rejilla adaptable de campos (año, asignatura, tema…) |
+| `fieldset.options` | Grupo de radios como fichas (formato, valoración) |
+| `.status` + `.ok` / `.warning` / `.error` | Avisos; en el pie se muestran como píldora con punto de color |
+| `.loading` | Región `role="status"` con indicador giratorio cuando tiene texto (vacía no ocupa espacio) |
+| `.empty` | Estado vacío (sin consultas, sin material, historial vacío) |
+| `.badge` + `.role` / `.indexed` / `.partial` / `.retired` / `.query` / `.generation` | Distintivos de rol, estado del documento y tipo de actividad |
+| `.table-wrap` | Contenedor con desplazamiento horizontal propio para tablas anchas (`role="region"`, enfocable) |
+| `.citations`, `.cite-num`, `.viewer`, `.source`, `.page` | Lista de fuentes, visor de la cita, cita textual y texto de la página con `<mark>` |
+| `.questions`, `.solution`, `.exam-list` | Preguntas numeradas del examen, respuesta esperada y exámenes guardados |
+
+Los iconos son SVG en línea con `aria-hidden="true"` (`Icon` en `App.tsx`); el texto contiguo da el nombre accesible. Con `prefers-reduced-motion: reduce` se desactivan transiciones y animaciones. Diseño comprobado hasta 360 px de ancho sin desplazamiento horizontal de la página.
 
 ## Wireframes
 
 ### Login (CU-00)
 
 ```
-DERECHO · UNIVERSIDAD DE PINAR DEL RÍO
-Ateneo
-Un espacio para consultar, comprender y practicar.
++ panel de marca (azul) ---------------+ + tarjeta ---------------------+
+| [icono]                               | | Iniciar sesión               |
+| DERECHO · UNIVERSIDAD DE PINAR DEL RÍO| | …formulario (abajo)…         |
+| Ateneo                                | |                              |
+| Un espacio para consultar, …          | |                              |
++---------------------------------------+ +------------------------------+
+   (en pantallas estrechas el panel de marca queda encima)
+
 [Tu sesión ha caducado…]          ← solo tras un 401
 Correo electrónico [____________]
 Contraseña         [____________]
@@ -197,7 +230,7 @@ Comentario [______________________]
 
 ## Accesibilidad
 
-Landmarks `header`/`nav`/`main`/`footer`, enlace para saltar al contenido, campos con etiqueta, grupos con `fieldset`/`legend`, tablas con `caption` y encabezados, foco visible y mensajes de envío con `role="status"`. Errores con `role="alert"` enlazados a sus campos con `aria-describedby` y con foco al aparecer; regiones `role="status"` para las cargas; el foco pasa al resultado de la consulta, al visor de la cita y al texto de la página cargada. Las marcas `[n]` son botones con nombre accesible («Cita 1: Documento, p. 12»).
+Landmarks `header`/`nav`/`main`/`footer`, enlace para saltar al contenido, foco visible con contraste ≥ 3:1 en ambos temas, contraste AA, respeto de `prefers-reduced-motion`, campos con etiqueta, grupos con `fieldset`/`legend`, tablas con `caption` y encabezados, foco visible y mensajes de envío con `role="status"`. Errores con `role="alert"` enlazados a sus campos con `aria-describedby` y con foco al aparecer; regiones `role="status"` para las cargas; el foco pasa al resultado de la consulta, al visor de la cita y al texto de la página cargada. Las marcas `[n]` son botones con nombre accesible («Cita 1: Documento, p. 12»).
 
 ## Comprobación manual
 
