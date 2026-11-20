@@ -120,7 +120,9 @@ Las claves de IA viven solo en el `.env` del servidor, nunca en el frontend ni e
 | [Prototipo RAG](docs/rag-prototype.md) · [QA del RAG](docs/qa-rag.md) | Recuperación, citas, evaluación y carga |
 | [Frontend](docs/frontend.md) | Pantallas, sistema visual y accesibilidad |
 | [Despliegue](docs/deployment.md) | Entornos, pipeline, operación y backups |
+| [Entrega](docs/entrega.md) | Requisitos del servidor, primer despliegue, traspaso del repositorio y verificación |
 | [Guía de demo](docs/demo.md) | Recorrido para enseñar la aplicación |
+| [Revisión con el cliente](docs/revision-cliente.md) | Preparación, guion por rol, aceptación y feedback de las revisiones |
 | [Backlog](docs/backlog.md) · [Colaboración](CONTRIBUTING.md) | Tareas, flujo de ramas y revisión |
 
 ## Estructura
