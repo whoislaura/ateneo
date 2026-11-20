@@ -175,9 +175,9 @@ def create_query(
     db: Annotated[Session, Depends(get_db)],
 ):
     """Estudiante, Profesor. Respuesta restringida al corpus con citas (CU-05)."""
-    filters = body.model_dump(exclude={"question"})
+    filters = body.model_dump(exclude={"question", "mode"})
     try:
-        result = query.ask(db, body.question, **filters)
+        result = query.ask(db, body.question, mode=body.mode, **filters)
     except (ValueError, OSError) as exc:
         raise ai_unavailable(exc, "El servicio de respuestas no está disponible.") from exc
     answer_status, content, valid = citations.validate(db, result)

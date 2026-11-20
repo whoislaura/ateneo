@@ -290,6 +290,24 @@ def test_clear_history_keeps_documents_and_exams(client, factory):
         assert db.scalar(select(func.count()).select_from(Citation)) == 0
 
 
+def test_query_mode_is_optional_and_validated(client):
+    question = "¿Qué conserva la biblioteca?"
+    brief = ask(client, question=question, mode="breve").json()
+    assert brief["content"] == f"{SENTENCE} [1]" and "mode" not in brief
+    response = ask(client, question=question, mode="desarrollada")
+    assert response.status_code == 201
+    body = response.json()
+    assert body["status"] == "answered" and "mode" not in body
+    content = body["content"]
+    assert content.startswith("## Planteamiento\n") and "## Límites del corpus" in content
+    [citation] = body["citations"]
+    assert citation["quote"] == TEXT[citation["start"] : citation["end"]] == SENTENCE
+    for mode in ("larga", "", None, 1):
+        response = ask(client, question=question, mode=mode)
+        assert response.status_code == 422, mode
+        assert response.json()["error"]["code"] == "validation_error"
+
+
 def test_query_roles_and_validation(client):
     assert client.post("/api/v1/queries", json={"question": "x"}).status_code == 401
     assert ask(client, Role.ADMIN, question="x").status_code == 403

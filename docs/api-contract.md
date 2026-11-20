@@ -126,6 +126,12 @@ Toda respuesta de CU-01 y CU-02 es un `AnswerOut` con `status`:
 
 `POST /queries` recibe `question` y los filtros opcionales `year`, `subject` y `topic` (se recortan espacios; asignatura y tema se comparan sin distinguir mayúsculas). Un filtro sin documentos no es un error: devuelve `no_evidence`. Se recupera de los documentos no retirados con pgvector, se genera la respuesta, se validan las citas (abajo) y, en una sola transacción, se guardan la respuesta, sus citas como copia y una entrada de historial `query`. La respuesta se puede reabrir con `GET /answers/{answer_id}`.
 
+`mode` (opcional) elige el tipo de respuesta: `"breve"` (por defecto; el comportamiento de siempre) o `"desarrollada"` (más fragmentos y respuesta estructurada con `## Planteamiento`, `## Desarrollo`, `## Fundamentación`, `## Conclusión` y `## Límites del corpus`, ver [prototipo RAG](rag-prototype.md#modo-desarrollada)). Cualquier otro valor da 422. Los clientes que no lo envían siguen igual. El modo no se guarda (no hay columna en `answers` y no se añaden migraciones) y `AnswerOut` no lo devuelve; una respuesta desarrollada se reconoce porque su `content` tiene líneas `## …`. En `content`, una línea que empieza por `## ` es un título y una que empieza por `- ` es un elemento de lista; las demás son párrafos.
+
+```json
+{"question": "¿Qué requisitos tiene la usucapión?", "year": 2, "mode": "desarrollada"}
+```
+
 El proveedor se elige por entorno: `ATENEO_LLM_PROVIDER` (`fake` por defecto, `openai`) y `ATENEO_EMBEDDER` (`fake` por defecto, `openai`; debe ser el mismo que indexó el corpus). Las variables de cada proveedor están en el [prototipo RAG](rag-prototype.md). Pruebas y CI usan siempre `fake`. Un fallo del proveedor devuelve 503 sin guardar nada.
 
 El RAG se invoca solo a través de `app.query.ask`, que devuelve `status`, `answer` con marcas `[n]` y `citations` con `document_id`, `title`, `version`, `page`, `start`, `end`, `quote` y `chunk_id`, donde `[n]` remite a la cita n.

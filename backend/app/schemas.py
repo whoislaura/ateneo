@@ -73,6 +73,12 @@ class Classification(Contract):
 
 class QueryRequest(Classification):
     question: Question
+    # No se guarda en Answer (sin migraciones); la respuesta no lo devuelve.
+    mode: Literal["breve", "desarrollada"] = Field(
+        default="breve",
+        description="«breve» (por defecto): respuesta corta. «desarrollada»: más fragmentos y "
+        "estructura Planteamiento, Desarrollo, Fundamentación, Conclusión y Límites del corpus.",
+    )
 
 
 class GenerationRequest(Classification):
