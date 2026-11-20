@@ -1,0 +1,47 @@
+# Demo en Render (plan gratuito). Guía: docs/deployment.md, apartado "Demo en Render".
+# La base es externa (Neon con pgvector): la gratuita de Render caduca a los 30 días.
+services:
+  - type: web
+    name: ateneo-api
+    runtime: docker
+    plan: free
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: DATABASE_URL # postgresql+psycopg://usuario:clave@host/base?sslmode=require
+        sync: false
+      - key: ATENEO_LLM_PROVIDER
+        value: fake
+      - key: ATENEO_EMBEDDER
+        value: fake
+      - key: ATENEO_MAX_UPLOAD_MB
+        value: "20"
+
+  - type: web
+    name: ateneo-web
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+    headers:
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: Referrer-Policy
+        value: no-referrer
+    routes:
+      # Mismo origen para el navegador: sin CORS. Si Render asigna otra URL a la API, cambiarla aquí.
+      - type: rewrite
+        source: /api/*
+        destination: https://ateneo-api.onrender.com/api/*
+      - type: rewrite
+        source: /*
+        destination: /index.html

@@ -127,6 +127,24 @@ Settings → Rules (o Branches), para `staging` y `main`:
 
 Convenciones: las ramas de trabajo se integran en `staging` con squash; la promoción `staging` → `main` se integra con *merge commit* (no squash) para que ambas ramas no diverjan. GitHub no impide por regla PRs a `main` desde otras ramas: revisar que el origen sea `staging`.
 
+## Demo en Render
+
+Entorno gratuito para enseñar la aplicación al cliente; no sustituye a producción. `render.yaml` define la API (Docker) y la web (sitio estático que reenvía `/api/*` a la API, así no hace falta CORS). La base es PostgreSQL de [Neon](https://neon.tech), que incluye pgvector; la gratuita de Render caduca a los 30 días.
+
+1. En Neon, crear un proyecto y copiar su cadena de conexión cambiando el esquema a `postgresql+psycopg://` (conservar `?sslmode=require`).
+2. En Render: *New* → *Blueprint*, elegir el repositorio y rellenar `DATABASE_URL` con esa cadena. La API migra la base al arrancar.
+3. Si Render no asigna `https://ateneo-api.onrender.com` a la API (nombre ocupado), corregir el destino de `/api/*` en `render.yaml`.
+4. El plan gratuito no da consola: crear las cuentas desde un equipo local contra la base de Neon:
+
+   ```sh
+   cd backend
+   DATABASE_URL='postgresql+psycopg://...' uv run python -m app.auth create-user admin@upr.edu.cu --name "Admin Demo" --role admin
+   ```
+
+5. Subir el corpus de muestra desde la pantalla Corpus y seguir [la guía de demostración](demo.md).
+
+Límites: la IA es `fake` (cambiar `ATENEO_LLM_PROVIDER`/`ATENEO_EMBEDDER` y sus claves en Render para usar una real); la API se duerme tras 15 minutos sin uso y tarda alrededor de un minuto en despertar, así que conviene abrirla antes de la reunión.
+
 ## Datos aún desconocidos del servidor
 
 - Sistema operativo, arquitectura, CPU/RAM y almacenamiento disponible.
