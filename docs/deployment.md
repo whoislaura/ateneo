@@ -8,17 +8,27 @@ Los volúmenes conservan datos al detener contenedores. `docker compose down --v
 
 ## Ramas y pipeline
 
-El trabajo se hace en ramas cortas que se integran en `staging`; `staging` se promueve a `main` mediante PR.
+El trabajo se hace en ramas cortas que se integran directamente en `main` mediante PR con squash ([flujo](../CONTRIBUTING.md)). No existe rama `staging` permanente.
 
 | Evento | Workflow | Resultado |
 |---|---|---|
-| PR hacia `staging` o `main` | `CI` (`ci.yml`) | Checks `Backend`, `Frontend` y `Containers and smoke` |
-| Push a `staging` | `Deploy` (`deploy.yml`) | CI → imágenes en GHCR → despliegue al entorno `staging` |
-| Push a `main` | `Deploy` (`deploy.yml`) | CI → imágenes en GHCR → despliegue al entorno `production` |
+| PR hacia `main` | `CI` (`ci.yml`) | Checks `Backend`, `Frontend` y `Containers and smoke` |
+| Push a `main` (PR integrado) | `Deploy` (`deploy.yml`) | CI → imágenes en GHCR → despliegue al entorno `production` |
+| Push a `staging` (solo si se activa la preproducción) | `Deploy` (`deploy.yml`) | CI → imágenes en GHCR → despliegue al entorno `staging` |
 
-`Deploy` publica `ghcr.io/whoislaura/ateneo/api:<sha>` y `ghcr.io/whoislaura/ateneo/web:<sha>` con el `GITHUB_TOKEN`. El paso SSH se omite con un aviso (sin fallar) mientras el entorno no tenga todas las variables y secretos de la tabla siguiente.
+`Deploy` publica `ghcr.io/<propietario>/<repositorio>/api:<sha>` y `.../web:<sha>` (hoy `ghcr.io/whoislaura/ateneo`), derivados de `github.repository` en minúsculas, con el `GITHUB_TOKEN`; tras transferir el repositorio no hay que tocar el workflow. El paso SSH se omite con un aviso (sin fallar) mientras el entorno no tenga todas las variables y secretos de la tabla de [entornos](#entornos-de-github).
 
-En el servidor, el despliegue copia `compose.yaml`, `compose.prod.yaml`, `infra/db/init.sql` e `infra/backup.sh` a `DEPLOY_PATH`, ejecuta `docker compose pull` y `up -d --wait` con `IMAGE_TAG=<sha>` (la API migra la base al arrancar) y comprueba `/api/v1/health` a través de la web. `compose.prod.yaml` sustituye la construcción local por las imágenes publicadas. Para operar a mano en el servidor: `IMAGE_TAG=<sha> docker compose -f compose.yaml -f compose.prod.yaml <comando>`; el sha desplegado aparece en `docker compose images`.
+En el servidor, el despliegue copia `compose.yaml`, `compose.prod.yaml`, `infra/db/init.sql` e `infra/backup.sh` a `DEPLOY_PATH`, ejecuta `docker compose pull` y `up -d --wait` con `IMAGE_TAG=<sha>` (la API migra la base al arrancar) y comprueba `/api/v1/health` a través de la web. `compose.prod.yaml` sustituye la construcción local por las imágenes publicadas. Para operar a mano en el servidor: `IMAGE_TAG=<sha> docker compose -f compose.yaml -f compose.prod.yaml <comando>`; el sha desplegado aparece en `docker compose images`. Si el repositorio ya no es `whoislaura/ateneo`, añadir al `.env` del servidor `IMAGE_REPO=ghcr.io/<propietario>/<repositorio>` en minúsculas (el despliegue automático ya lo exporta).
+
+### Entorno de preproducción (opcional)
+
+Los workflows siguen aceptando `staging` por si el cliente quiere probar cada versión en un servidor previo antes de producción. Para activarlo:
+
+1. Crear la rama `staging` desde `main` y protegerla como `main` (ver [protección de ramas](#protección-de-ramas)).
+2. Crear el entorno de GitHub `staging` con sus propias variables y secreto, y preparar su servidor o directorio (ver [servidor](#servidor-por-entorno)).
+3. Cambiar el flujo: las ramas de trabajo se integran en `staging` con squash, y `staging` se promueve a `main` con un PR integrado con *merge commit* (no squash) para que ambas ramas no diverjan.
+
+Sin la rama, nada cambia: ningún push dispara el entorno `staging`.
 
 ## Operación
 
@@ -87,7 +97,7 @@ Docker guarda los logs sin límite por defecto; en el servidor, fijar rotación 
 `infra/backup.sh [DIRECTORIO]` ejecuta `pg_dump` dentro del contenedor `db`, guarda `ateneo-<fecha UTC>.sql.gz` (permisos 600) en `backups/` por defecto y borra las de más de `BACKUP_RETENTION_DAYS` días (7). Se ejecuta desde cualquier ruta; opera sobre el proyecto Compose de su directorio (respeta `COMPOSE_PROJECT_NAME` del `.env`). Cron diario del usuario de despliegue:
 
 ```cron
-15 3 * * * /srv/ateneo-staging/infra/backup.sh >> /srv/ateneo-staging/backups/backup.log 2>&1
+15 3 * * * /srv/ateneo/infra/backup.sh >> /srv/ateneo/backups/backup.log 2>&1
 ```
 
 Copiar `backups/` fuera del servidor (otro disco o máquina): una copia en el mismo disco no protege de su pérdida. Restaurar (sustituye el contenido actual de la base):
@@ -106,8 +116,8 @@ docker compose start api web
 
 Settings → Environments, crear:
 
-- `staging`: Deployment branches → *Selected branches* → `staging`.
-- `production`: Deployment branches → `main`; *Required reviewers* con al menos un integrante.
+- `production`: Deployment branches → *Selected branches* → `main`; *Required reviewers* con al menos un integrante.
+- `staging` (solo con [preproducción](#entorno-de-preproducción-opcional)): Deployment branches → `staging`.
 
 En cada entorno, con valores distintos por entorno:
 
@@ -116,7 +126,7 @@ En cada entorno, con valores distintos por entorno:
 | `DEPLOY_HOST` | Variable | Nombre o IP del servidor |
 | `DEPLOY_PORT` | Variable | Puerto SSH (opcional, 22 por defecto) |
 | `DEPLOY_USER` | Variable | Usuario de despliegue con acceso a Docker |
-| `DEPLOY_PATH` | Variable | Directorio absoluto del despliegue, p. ej. `/srv/ateneo-staging` |
+| `DEPLOY_PATH` | Variable | Directorio absoluto del despliegue, p. ej. `/srv/ateneo` |
 | `DEPLOY_KNOWN_HOSTS` | Variable | Salida de `ssh-keyscan -p <puerto> <host>`, verificada con el administrador del servidor |
 | `DEPLOY_SSH_KEY` | Secreto | Clave privada ed25519 dedicada, sin frase de paso, solo para este entorno |
 
@@ -132,13 +142,12 @@ Los secretos de la aplicación no pasan por GitHub: viven en el `.env` del servi
 
 ### Protección de ramas
 
-Settings → Rules (o Branches), para `staging` y `main`:
+Settings → Rules (o Branches), para `main` (y `staging` si se activa la preproducción):
 
 - Exigir pull request con una aprobación y descartar aprobaciones obsoletas.
-- Exigir los checks `Backend`, `Frontend` y `Containers and smoke`; en `staging`, además, la rama actualizada (en `main` no, porque cada merge commit de promoción obligaría a reintegrar `main` en `staging`).
+- Exigir los checks `Backend`, `Frontend` y `Containers and smoke`.
+- Permitir solo *squash merge* en Settings → General → Pull Requests (con preproducción, permitir también *merge commit* para la promoción `staging` → `main`).
 - Bloquear push forzado y borrado; sin excepciones para administradores.
-
-Convenciones: las ramas de trabajo se integran en `staging` con squash; la promoción `staging` → `main` se integra con *merge commit* (no squash) para que ambas ramas no diverjan. GitHub no impide por regla PRs a `main` desde otras ramas: revisar que el origen sea `staging`.
 
 ## Demo en Render
 
