@@ -12,13 +12,14 @@ uv sync --frozen
 uv run --frozen python -m app.rag sample --output ../data/sample
 uv run --frozen python -m app.rag ingest --pdf ../data/sample/muestra-a.pdf --metadata ../data/sample/muestra-a.json --index ../data/sample.sqlite
 uv run --frozen python -m app.rag ingest --pdf ../data/sample/muestra-b.pdf --metadata ../data/sample/muestra-b.json --index ../data/sample.sqlite
+uv run --frozen python -m app.rag ingest --pdf ../data/sample/muestra-c.pdf --metadata ../data/sample/muestra-c.json --index ../data/sample.sqlite
 uv run --frozen python -m app.rag search --index ../data/sample.sqlite --query azafran
 uv run --frozen python -m app.rag search --index ../data/sample.sqlite --query biblioteca --year 4 --subject "Asignatura ficticia B" --topic "Evaluación"
 ```
 
 La primera búsqueda devuelve la página física 1 de `muestra-a`. La segunda limita los resultados a `muestra-b`. La página 2 de `muestra-a` está vacía a propósito: su ingestión devuelve `status: partial` y `no_text_pages: [2]`. Ese estado no implica un fallo de escritura; informa de cobertura de extracción incompleta.
 
-`sample` genera dos PDFs reproducibles (3 y 2 páginas) y sus metadatos. Para repetirlo, usar otra carpeta; el comando rechaza sobrescribir los archivos existentes. `ingest` sí admite repetirse: sustituye el documento identificado sin duplicarlo. Los comandos escriben JSON por stdout; errores operativos van a stderr y devuelven código 1. Argumentos inválidos devuelven código 2.
+`sample` genera tres PDFs reproducibles (3, 2 y 1 páginas) y sus metadatos; `muestra-c` contiene una instrucción incrustada para las pruebas de [QA del RAG](qa-rag.md). Para repetirlo, usar otra carpeta; el comando rechaza sobrescribir los archivos existentes. `ingest` sí admite repetirse: sustituye el documento identificado sin duplicarlo. Los comandos escriben JSON por stdout; errores operativos van a stderr y devuelven código 1. Argumentos inválidos devuelven código 2.
 
 ## Demostración web con el corpus sintético
 
