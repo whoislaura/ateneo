@@ -51,8 +51,18 @@ def client(db_factory):
     app.dependency_overrides.clear()
 
 
-def login(client, email, password=PASSWORD):
-    return client.post("/api/v1/auth/login", json={"email": email, "password": password})
+@pytest.fixture(autouse=True)
+def clock(monkeypatch):
+    """Limitador de login limpio y con reloj manual: las pruebas avanzan el tiempo sin dormir."""
+    now = [1000.0]
+    monkeypatch.setattr(auth, "login_limiter", auth.LoginLimiter(clock=lambda: now[0]))
+    monkeypatch.setattr("app.api.login_limiter", auth.login_limiter)
+    return now
+
+
+def login(client, email, password=PASSWORD, **kwargs):
+    body = {"email": email, "password": password}
+    return client.post("/api/v1/auth/login", json=body, **kwargs)
 
 
 def headers(client, role: Role):
@@ -214,3 +224,83 @@ def test_user_management_cli(db_factory, monkeypatch, capsys):
 
     with pytest.raises(SystemExit):
         auth.main(["set-role", "nadie@ateneo.cu", "--role", "admin"])
+
+
+def test_login_rate_limit_per_account(client, clock, monkeypatch):
+    monkeypatch.setattr(auth, "LOGIN_MAX_ATTEMPTS", 3)
+    monkeypatch.setattr(auth, "LOGIN_WINDOW_SECONDS", 600)
+    for _ in range(3):
+        assert login(client, "student@ateneo.cu", "incorrecta").status_code == 401
+    # Bloqueada aunque la contraseña sea correcta y el correo cambie de mayúsculas.
+    response = login(client, " Student@Ateneo.cu")
+    assert response.status_code == 429
+    assert response.headers["Retry-After"] == "600"
+    assert response.json()["error"] == {
+        "code": "too_many_requests",
+        "message": "Demasiados intentos fallidos. Vuelva a intentarlo en 10 min.",
+        "details": None,
+    }
+    assert login(client, "teacher@ateneo.cu").status_code == 200  # otra cuenta, misma IP
+    clock[0] += 599
+    assert login(client, "student@ateneo.cu").headers["Retry-After"] == "1"
+    clock[0] += 1
+    assert login(client, "student@ateneo.cu").status_code == 200
+
+
+def test_successful_login_resets_account_counter(client, monkeypatch):
+    monkeypatch.setattr(auth, "LOGIN_MAX_ATTEMPTS", 3)
+    for _ in range(2):
+        login(client, "student@ateneo.cu", "incorrecta")
+    assert login(client, "student@ateneo.cu").status_code == 200
+    for _ in range(2):
+        assert login(client, "student@ateneo.cu", "incorrecta").status_code == 401
+    assert login(client, "student@ateneo.cu").status_code == 200
+
+
+def test_login_rate_limit_per_ip(client, monkeypatch):
+    monkeypatch.setattr(auth, "LOGIN_IP_MAX_ATTEMPTS", 3)
+    for number in range(3):
+        assert login(client, f"nadie{number}@ateneo.cu").status_code == 401
+    response = login(client, "student@ateneo.cu")
+    assert response.status_code == 429 and "Retry-After" in response.headers
+
+
+def test_forwarded_for_only_trusted_when_configured(client, monkeypatch):
+    monkeypatch.setattr(auth, "LOGIN_IP_MAX_ATTEMPTS", 2)
+    # Sin proxies de confianza, inventar X-Forwarded-For no esquiva el límite por IP.
+    for number in range(2):
+        spoofed = {"X-Forwarded-For": f"10.0.0.{number}"}
+        assert login(client, f"nadie{number}@ateneo.cu", headers=spoofed).status_code == 401
+    assert (
+        login(client, "student@ateneo.cu", headers={"X-Forwarded-For": "10.0.0.9"}).status_code
+        == 429
+    )
+
+    # Con un salto (Nginx), cuenta la última entrada; lo que el cliente antepone se ignora.
+    monkeypatch.setattr(auth, "TRUSTED_PROXY_HOPS", 1)
+    for number in range(2):
+        spoofed = {"X-Forwarded-For": f"1.2.3.{number}, 203.0.113.7"}
+        assert login(client, f"nadie{number}@ateneo.cu", headers=spoofed).status_code == 401
+    other = {"X-Forwarded-For": "203.0.113.8"}
+    assert login(client, "student@ateneo.cu", headers=other).status_code == 200
+    blocked = {"X-Forwarded-For": "1.2.3.9, 203.0.113.7"}
+    assert login(client, "teacher@ateneo.cu", headers=blocked).status_code == 429
+
+
+@pytest.mark.parametrize(
+    ("hops", "forwarded", "expected"),
+    [
+        (0, "1.1.1.1", "testclient"),
+        (1, None, "testclient"),
+        (1, "1.1.1.1, 2.2.2.2", "2.2.2.2"),
+        (2, "1.1.1.1, 2.2.2.2, 3.3.3.3", "2.2.2.2"),
+        (3, "2.2.2.2", "2.2.2.2"),
+    ],
+)
+def test_client_ip(monkeypatch, hops, forwarded, expected):
+    from starlette.requests import Request
+
+    monkeypatch.setattr(auth, "TRUSTED_PROXY_HOPS", hops)
+    headers = [(b"x-forwarded-for", forwarded.encode())] if forwarded else []
+    request = Request({"type": "http", "headers": headers, "client": ("testclient", 50000)})
+    assert auth.client_ip(request) == expected

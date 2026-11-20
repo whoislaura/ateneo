@@ -13,13 +13,15 @@ import base64
 import getpass
 import hashlib
 import hmac
+import math
 import os
 import secrets
+import time
 from datetime import UTC, datetime, timedelta
 from functools import cache
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
@@ -32,6 +34,13 @@ TOKEN_TTL = timedelta(seconds=int(os.environ.get("ATENEO_TOKEN_TTL_SECONDS", 8 *
 # scrypt: 32 MiB por hash. Los parámetros viajan en el hash, así que pueden subirse sin migrar.
 SCRYPT = {"n": 2**15, "r": 8, "p": 1}
 MIN_PASSWORD = 8
+# Intentos fallidos de login por cuenta y por IP dentro de una ventana fija.
+LOGIN_MAX_ATTEMPTS = int(os.environ.get("ATENEO_LOGIN_MAX_ATTEMPTS", 5))
+LOGIN_IP_MAX_ATTEMPTS = int(os.environ.get("ATENEO_LOGIN_IP_MAX_ATTEMPTS", 50))
+LOGIN_WINDOW_SECONDS = int(os.environ.get("ATENEO_LOGIN_WINDOW_SECONDS", 900))
+# Proxies propios delante de la API que añaden su entrada a X-Forwarded-For. 0: no se confía en la
+# cabecera (un cliente puede inventarla) y se usa la IP de la conexión.
+TRUSTED_PROXY_HOPS = int(os.environ.get("ATENEO_TRUSTED_PROXY_HOPS", 0))
 
 bearer = HTTPBearer(auto_error=False)
 
@@ -76,6 +85,68 @@ def authenticate(db: Session, email: str, password: str) -> User | None:
     # Sin usuario se verifica igual contra un hash ficticio: mismo tiempo, sin enumeración.
     valid = verify_password(password, user.password_hash if user else _dummy_hash())
     return user if user and valid and user.is_active else None
+
+
+def client_ip(request: Request) -> str:
+    """IP del cliente: entrada de X-Forwarded-For que añadió el proxy de confianza más externo."""
+    forwarded = [
+        part.strip()
+        for header in request.headers.getlist("x-forwarded-for")
+        for part in header.split(",")
+        if part.strip()
+    ]
+    if TRUSTED_PROXY_HOPS and forwarded:
+        # Cada proxy añade al final la IP que le conecta; lo anterior lo controla el cliente.
+        return forwarded[-min(TRUSTED_PROXY_HOPS, len(forwarded))]
+    return request.client.host if request.client else "desconocida"
+
+
+class LoginLimiter:
+    """Cuenta logins fallidos por correo normalizado y por IP en ventanas fijas."""
+
+    # shortcut: memoria del proceso (se pierde al reiniciar y no se comparte entre procesos ni
+    # réplicas); pasar a la base o a Redis si la API corre con varios workers o instancias.
+    def __init__(self, clock=time.monotonic):
+        self.clock = clock
+        self.failures: dict[str, tuple[float, int]] = {}
+
+    @staticmethod
+    def _keys(email: str, ip: str) -> dict[str, int]:
+        email = email.strip().lower()
+        return {f"email:{email}": LOGIN_MAX_ATTEMPTS, f"ip:{ip}": LOGIN_IP_MAX_ATTEMPTS}
+
+    def _current(self, key: str, now: float) -> tuple[float, int]:
+        start, count = self.failures.get(key, (now, 0))
+        return (start, count) if now - start < LOGIN_WINDOW_SECONDS else (now, 0)
+
+    def retry_after(self, email: str, ip: str) -> int:
+        """Segundos hasta poder reintentar; 0 si no hay bloqueo."""
+        now = self.clock()
+        waits = [
+            LOGIN_WINDOW_SECONDS - (now - start)
+            for key, limit in self._keys(email, ip).items()
+            for start, count in [self._current(key, now)]
+            if count >= limit
+        ]
+        return math.ceil(max(waits, default=0))
+
+    def fail(self, email: str, ip: str) -> None:
+        now = self.clock()
+        if len(self.failures) > 10_000:  # acota la memoria ante muchos correos distintos
+            self.failures = {
+                key: value
+                for key, value in self.failures.items()
+                if now - value[0] < LOGIN_WINDOW_SECONDS
+            }
+        for key in self._keys(email, ip):
+            start, count = self._current(key, now)
+            self.failures[key] = (start, count + 1)
+
+    def succeed(self, email: str) -> None:
+        self.failures.pop(f"email:{email.strip().lower()}", None)
+
+
+login_limiter = LoginLimiter()
 
 
 def create_session(db: Session, user: User) -> str:
