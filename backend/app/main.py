@@ -8,12 +8,13 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from starlette.exceptions import HTTPException
 
-from app import api, logs
+from app import admin, api, logs
 
 logs.setup()
 app = FastAPI(title="Ateneo API", version="0.1.0")
 app.include_router(api.public)
 app.include_router(api.router)
+app.include_router(admin.router)
 
 
 def error_response(status: int, code: str, message: str, details=None, headers=None):

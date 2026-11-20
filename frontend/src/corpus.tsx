@@ -1,11 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { api, ApiError, type CorpusDocument, type DocumentStatus, type IngestionReport } from './api'
-
-const statusLabels: Record<DocumentStatus, string> = {
-  indexed: 'Indexado',
-  partial: 'Indexado con páginas sin texto',
-  retired: 'Retirado',
-}
+import { api, ApiError, documentStatusLabels as statusLabels, type CorpusDocument, type IngestionReport } from './api'
 
 interface Filters {
   year: string
