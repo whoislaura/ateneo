@@ -21,6 +21,11 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-ateneo}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-ateneo}
       ATENEO_TOKEN_TTL_SECONDS: ${ATENEO_TOKEN_TTL_SECONDS:-28800}
+      ATENEO_LOGIN_MAX_ATTEMPTS: ${ATENEO_LOGIN_MAX_ATTEMPTS:-5}
+      ATENEO_LOGIN_IP_MAX_ATTEMPTS: ${ATENEO_LOGIN_IP_MAX_ATTEMPTS:-50}
+      ATENEO_LOGIN_WINDOW_SECONDS: ${ATENEO_LOGIN_WINDOW_SECONDS:-900}
+      # La API solo es accesible a través de Nginx (web), que añade una entrada a X-Forwarded-For.
+      ATENEO_TRUSTED_PROXY_HOPS: ${ATENEO_TRUSTED_PROXY_HOPS:-1}
       ATENEO_MAX_UPLOAD_MB: ${ATENEO_MAX_UPLOAD_MB:-20}
       # IA: `fake` por defecto (sin red ni claves). Ver docs/deployment.md.
       ATENEO_LLM_PROVIDER: ${ATENEO_LLM_PROVIDER:-fake}
