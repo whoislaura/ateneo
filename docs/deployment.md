@@ -29,6 +29,8 @@ Compose construye `DATABASE_URL` con `POSTGRES_*` (por eso `POSTGRES_PASSWORD` s
 | Variable | Uso |
 |---|---|
 | `ATENEO_TOKEN_TTL_SECONDS` | Vida del token de sesión (28800) |
+| `ATENEO_LOGIN_MAX_ATTEMPTS`, `ATENEO_LOGIN_IP_MAX_ATTEMPTS`, `ATENEO_LOGIN_WINDOW_SECONDS` | Logins fallidos por cuenta (5) y por IP (50) en una ventana de 900 s; ver [límite de intentos](#límite-de-intentos-de-login) |
+| `ATENEO_TRUSTED_PROXY_HOPS` | Proxies propios delante de la API (1 en Compose: Nginx; 0 en el código) |
 | `ATENEO_MAX_UPLOAD_MB` | Límite de subida de PDFs en MB (20; Nginx corta en 25) |
 | `ATENEO_LLM_PROVIDER`, `ATENEO_EMBEDDER` | `fake` (defecto) u `openai` (API compatible) |
 | `ATENEO_LLM_API_KEYS`, `ATENEO_EMBED_API_KEYS` | Claves separadas por comas (cuentas rotativas); alternativa: `*_API_KEY` con una sola |
@@ -43,6 +45,17 @@ Tras cambiar `.env`: `docker compose up -d` (recrea la API).
 ### Límites de subida
 
 Nginx acepta cuerpos de hasta 25 MB (`frontend/nginx.conf`); el backend corta en `ATENEO_MAX_UPLOAD_MB` (20 por defecto) y devuelve el 413 JSON del contrato. Ese margen de 5 MB deja responder al backend antes de que Nginx corte. Si se sube `ATENEO_MAX_UPLOAD_MB` por encima de 25, actualizar también `client_max_body_size`.
+
+### Límite de intentos de login
+
+Pasados los fallos permitidos, `POST /auth/login` responde 429 `too_many_requests` con `Retry-After` (ver [contrato](api-contract.md#autenticación-cu-00-at-08)). El límite por IP es más alto que el de cuenta porque un aula o una red institucional puede salir a internet con una sola IP. Los contadores viven en la memoria del proceso: se pierden al reiniciar la API y no se comparten entre réplicas (suficiente con un único proceso; con varios, mover a la base o a Redis).
+
+La IP del cliente sale de `X-Forwarded-For` solo si `ATENEO_TRUSTED_PROXY_HOPS` es mayor que 0. Cada proxy añade al final la dirección que le conectó; lo anterior lo escribe el cliente y puede ser falso. Con `N` proxies de confianza se toma la entrada `N` contando desde el final. Con 0 se usa la IP de la conexión TCP (uvicorn no reescribe la IP con cabeceras salvo que venga de `127.0.0.1`).
+
+- **Compose con Nginx** (`frontend/nginx.conf`, `X-Forwarded-For $proxy_add_x_forwarded_for`): 1, valor por defecto en `compose.yaml`. La API no publica puertos, así que solo Nginx le llega.
+- **Detrás del proxy HTTPS institucional**: con 1, todos los usuarios comparten la IP del proxy institucional y el límite por IP pasa a ser global. Si ese proxy añade `X-Forwarded-For` (confirmarlo con su administrador), usar 2. No subirlo si no lo añade: se confiaría en una entrada que escribe el cliente.
+- **Demo en Render**: `render.yaml` no fija la variable (0), así que el límite por IP es común a todos los usuarios de la demo; basta para enseñarla. No se ha comprobado cuántas entradas añade Render a `X-Forwarded-For` en el camino sitio estático → API, y la API también es accesible directamente en `onrender.com` con un salto menos: con un valor mayor que el del camino más corto, un cliente podría elegir su IP. Fijarlo solo tras comprobar ambos caminos.
+- **API sin proxy** (uvicorn en local): 0.
 
 ### Migraciones y primer administrador
 
@@ -126,6 +139,24 @@ Settings → Rules (o Branches), para `staging` y `main`:
 - Bloquear push forzado y borrado; sin excepciones para administradores.
 
 Convenciones: las ramas de trabajo se integran en `staging` con squash; la promoción `staging` → `main` se integra con *merge commit* (no squash) para que ambas ramas no diverjan. GitHub no impide por regla PRs a `main` desde otras ramas: revisar que el origen sea `staging`.
+
+## Demo en Render
+
+Entorno gratuito para enseñar la aplicación al cliente; no sustituye a producción. `render.yaml` define la API (Docker) y la web (sitio estático que reenvía `/api/*` a la API, así no hace falta CORS). La base es PostgreSQL de [Neon](https://neon.tech), que incluye pgvector; la gratuita de Render caduca a los 30 días.
+
+1. En Neon, crear un proyecto y copiar su cadena de conexión cambiando el esquema a `postgresql+psycopg://` (conservar `?sslmode=require`).
+2. En Render: *New* → *Blueprint*, elegir el repositorio y rellenar `DATABASE_URL` con esa cadena. La API migra la base al arrancar.
+3. Si Render no asigna `https://ateneo-api.onrender.com` a la API (nombre ocupado), corregir el destino de `/api/*` en `render.yaml`.
+4. El plan gratuito no da consola: crear las cuentas desde un equipo local contra la base de Neon:
+
+   ```sh
+   cd backend
+   DATABASE_URL='postgresql+psycopg://...' uv run python -m app.auth create-user admin@upr.edu.cu --name "Admin Demo" --role admin
+   ```
+
+5. Subir el corpus de muestra desde la pantalla Corpus y seguir [la guía de demostración](demo.md).
+
+Límites: la IA es `fake` (cambiar `ATENEO_LLM_PROVIDER`/`ATENEO_EMBEDDER` y sus claves en Render para usar una real); la API se duerme tras 15 minutos sin uso y tarda alrededor de un minuto en despertar, así que conviene abrirla antes de la reunión.
 
 ## Datos aún desconocidos del servidor
 

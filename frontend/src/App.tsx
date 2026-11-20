@@ -121,7 +121,9 @@ function Login({ expired, onLogin }: { expired: boolean; onLogin: (user: User) =
       // Mensaje genérico: no distingue correo inexistente de contraseña errónea.
       setError(err instanceof ApiError && (err.status === 401 || err.status === 422)
         ? 'Correo o contraseña incorrectos.'
-        : 'No se pudo iniciar sesión. Inténtalo de nuevo más tarde.')
+        : err instanceof ApiError && err.status === 429
+          ? err.message
+          : 'No se pudo iniciar sesión. Inténtalo de nuevo más tarde.')
     }
   }
 

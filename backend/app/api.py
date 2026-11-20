@@ -3,9 +3,10 @@
 Los permisos por rol (AT-08) se aplican: 401 sin sesión y 403 sin rol.
 """
 
+import math
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -13,9 +14,11 @@ from app import citations, corpus, exams, generation, query
 from app.auth import (
     TOKEN_TTL,
     authenticate,
+    client_ip,
     create_session,
     current_token,
     current_user,
+    login_limiter,
     require_roles,
     revoke_session,
 )
@@ -70,13 +73,28 @@ CORPUS = [Depends(require_roles(Role.TEACHER, Role.ADMIN))]
 # CU-00
 
 
-@public.post("/auth/login", response_model=TokenResponse, tags=["auth"])
-def login(body: LoginRequest, db: Annotated[Session, Depends(get_db)]):
-    """Todos los roles. Credenciales inválidas o usuario inactivo: 401."""
+@public.post(
+    "/auth/login",
+    response_model=TokenResponse,
+    responses={429: {"model": ErrorResponse}},
+    tags=["auth"],
+)
+def login(body: LoginRequest, request: Request, db: Annotated[Session, Depends(get_db)]):
+    """Todos los roles. Credenciales inválidas o usuario inactivo: 401. Demasiados fallos: 429."""
+    ip = client_ip(request)
+    wait = login_limiter.retry_after(body.email, ip)
+    if wait:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            f"Demasiados intentos fallidos. Vuelva a intentarlo en {math.ceil(wait / 60)} min.",
+            headers={"Retry-After": str(wait)},
+        )
     user = authenticate(db, body.email, body.password)
     if user is None:
+        login_limiter.fail(body.email, ip)
         # Mismo mensaje para correo inexistente, contraseña errónea o usuario inactivo.
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Correo o contraseña incorrectos.")
+    login_limiter.succeed(body.email)
     return TokenResponse(
         access_token=create_session(db, user),
         expires_in=int(TOKEN_TTL.total_seconds()),
