@@ -11,4 +11,4 @@ USER ateneo
 ENV PATH=/app/.venv/bin:$PATH
 EXPOSE 8000
 # Migra antes de servir: un fallo de migración impide arrancar (y el healthcheck lo delata).
-CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-access-log"]
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --no-access-log"]
