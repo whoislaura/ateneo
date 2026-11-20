@@ -1,6 +1,6 @@
 # Frontend
 
-React Router sin framework de UI ni librería de estado. Login, sesión y roles (CU-00), la consulta con visor de citas (CU-01, CU-05), la generación de material (CU-02), la gestión del corpus (CU-03), el historial con borrado por entrada o completo (CU-04), los exámenes (CU-06) y el feedback (CU-10) usan la API real según `docs/api-contract.md`. El estado de conexión (`/api/v1/health`, `role="status"`) aparece en el pie de cada pantalla y en el login.
+React Router sin framework de UI ni librería de estado. Login, sesión y roles (CU-00), la consulta con visor de citas (CU-01, CU-05), la generación de material (CU-02), la gestión del corpus (CU-03), el historial con borrado por entrada o completo (CU-04), los exámenes (CU-06), el feedback (CU-10) y el panel de administración (`/dashboard`) usan la API real según `docs/api-contract.md`. El estado de conexión (`/api/v1/health`, `role="status"`) aparece en el pie de cada pantalla y en el login.
 
 ## Cliente de la API
 
@@ -27,7 +27,8 @@ En desarrollo Vite redirige `/api` a `http://127.0.0.1:8000`; en producción lo 
 | Ruta | Pantalla | Caso de uso |
 |---|---|---|
 | `/login` | Correo y contraseña | CU-00 |
-| `/` | Redirige a la primera pantalla permitida del rol | — |
+| `/` | Redirige a la primera pantalla permitida del rol (el Panel para el administrador) | — |
+| `/dashboard` | Panel de administración con pestañas (`?tab=`) | Admin |
 | `/consulta` | Pregunta por año/asignatura/tema; respuesta con citas | CU-01, CU-05 |
 | `/generacion` | Resumen, esquema, cuadro o diagrama de texto | CU-02, CU-05 |
 | `/corpus` | Subir, actualizar y retirar material | CU-03 |
@@ -41,6 +42,7 @@ Sin sesión (o con la sesión caducada), cualquier ruta redirige a `/login` y, a
 
 | Pantalla | Estudiante | Profesor | Administrador |
 |---|:-:|:-:|:-:|
+| Panel | | | ✓ |
 | Consulta | ✓ | ✓ | |
 | Generación | ✓ | ✓ | |
 | Corpus | | ✓ | ✓ |
@@ -86,7 +88,8 @@ Convenciones de clases:
 | `.status` + `.ok` / `.warning` / `.error` | Avisos; en el pie se muestran como píldora con punto de color |
 | `.loading` | Región `role="status"` con indicador giratorio cuando tiene texto (vacía no ocupa espacio) |
 | `.empty` | Estado vacío (sin consultas, sin material, historial vacío) |
-| `.badge` + `.role` / `.indexed` / `.partial` / `.retired` / `.query` / `.generation` | Distintivos de rol, estado del documento y tipo de actividad |
+| `.badge` + `.role` / `.indexed` / `.partial` / `.retired` / `.query` / `.generation` / `.success` / `.warning` / `.danger` | Distintivos de rol, estado del documento, tipo de actividad y estados genéricos (cuenta activa, nivel de log) |
+| `.tabs`, `.stats` / `.stat`, `.bars`, `.legend`, `.meta` | Pestañas del panel, tarjetas de cifras, gráfico de barras en CSS con su leyenda y lista de metadatos |
 | `.table-wrap` | Contenedor con desplazamiento horizontal propio para tablas anchas (`role="region"`, enfocable) |
 | `.citations`, `.cite-num`, `.viewer`, `.source`, `.page` | Lista de fuentes, visor de la cita, cita textual y texto de la página con `<mark>` |
 | `.questions`, `.solution`, `.exam-list` | Preguntas numeradas del examen, respuesta esperada y exámenes guardados |
@@ -227,6 +230,21 @@ Tipo [Reportar error | Sugerir mejora ▾]
 Comentario [______________________]
 [Enviar feedback] → «Tu feedback se guardó»
 ```
+
+### Panel de administración (solo Administrador)
+
+`frontend/src/dashboard/` (una pestaña por archivo; tipos en `frontend/src/admin-api.ts`, rutas `/api/v1/admin/*`). Es la pantalla inicial del administrador; los demás roles ven «Acceso no permitido». Las pestañas siguen el patrón WAI-ARIA (`role="tablist"`, flechas, Inicio y Fin, activación automática) y la activa se guarda en `?tab=` para sobrevivir a una recarga.
+
+| Pestaña (`?tab=`) | Contenido |
+|---|---|
+| Resumen (`resumen`) | Cifras de `GET /admin/stats`: cuentas por rol y activas, documentos activos/retirados, páginas y páginas sin texto, actividad total y % sin evidencia; gráfico de barras apiladas de 7 días en CSS (`aria-hidden`) con la tabla de datos como alternativa |
+| Cuentas (`cuentas`) | Crear cuenta (contraseña ≥ 8); lista paginada con búsqueda y filtro de rol; por fila: cambiar rol, activar/desactivar, restablecer contraseña y cerrar sesiones, siempre en un `<dialog>` modal. Los 409/422 de la API (correo repetido, último admin, desactivarse a sí mismo) se muestran dentro del diálogo |
+| Materiales (`materiales`) | `GET /documents?include_retired=true` con recuento por estado; subir, actualizar y retirar se hacen en Corpus (enlace) |
+| Consultas (`consultas`) | Consultas y generaciones de todas las cuentas, paginadas y filtrables por tipo y estado. «Ver» abre la respuesta completa (`?answer=ID`, `GET /admin/answers/{id}`) con el mismo renderizado y visor de citas que Consulta y Generación |
+| Feedback (`feedback`) | Feedback paginado con filtro de tipo, valoración y enlace a la respuesta relacionada (`?tab=consultas&answer=ID`) |
+| Logs (`logs`) | Últimas entradas del búfer en memoria (las 1000 últimas del proceso actual) con nivel mínimo, búsqueda, botón «Actualizar» y actualización automática cada 10 s (desactivada por defecto); la excepción se despliega con `<details>` |
+
+Las listas paginan como Historial (`limit = 21`: la fila extra activa «Siguiente») y comparten los estados de carga, vacío y error (con «Reintentar»).
 
 ## Accesibilidad
 

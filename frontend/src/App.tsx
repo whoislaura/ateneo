@@ -4,6 +4,7 @@ import HealthStatus from './HealthStatus'
 import { api, ApiError, hasToken, roleLabels, setToken, setUnauthorizedHandler, type Role, type TokenResponse, type User } from './api'
 import { Consulta } from './consulta'
 import { Corpus } from './corpus'
+import { Dashboard } from './dashboard'
 import { Generacion } from './generacion'
 import { Historial } from './historial'
 import { Examen, Feedback } from './screens'
@@ -11,7 +12,9 @@ import { Examen, Feedback } from './screens'
 const STUDY: Role[] = ['student', 'teacher']
 
 // Matriz rol → pantalla según docs/api-contract.md; el backend aplica los permisos reales (403).
+// El orden importa: `/` lleva a la primera pantalla permitida (el Panel para el administrador).
 const screens: { path: string; label: string; roles: Role[]; element: ReactNode; icon: ReactNode }[] = [
+  { path: 'dashboard', label: 'Panel', roles: ['admin'], element: <Dashboard />, icon: <path d="M4 4h7v7H4zm9 0h7v4h-7zm0 6h7v10h-7zM4 13h7v7H4z" /> },
   { path: 'consulta', label: 'Consulta', roles: STUDY, element: <Consulta />, icon: <><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></> },
   { path: 'generacion', label: 'Generación', roles: STUDY, element: <Generacion />, icon: <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zm0 0v6h6M8 13h8m-8 4h5" /> },
   { path: 'corpus', label: 'Corpus', roles: ['teacher', 'admin'], element: <Corpus />, icon: <path d="M4 19.5V5a2 2 0 0 1 2-2h14v15H6.5A2.5 2.5 0 0 0 4 20.5 2.5 2.5 0 0 0 6.5 23H20M8 7h8" /> },

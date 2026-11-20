@@ -34,6 +34,16 @@ CONTRACT = {
     ("get", "/api/v1/exams/{exam_id}"),
     ("get", "/api/v1/exams/{exam_id}/answers"),
     ("post", "/api/v1/feedback"),
+    ("get", "/api/v1/admin/stats"),
+    ("get", "/api/v1/admin/users"),
+    ("post", "/api/v1/admin/users"),
+    ("patch", "/api/v1/admin/users/{user_id}"),
+    ("post", "/api/v1/admin/users/{user_id}/password"),
+    ("delete", "/api/v1/admin/users/{user_id}/sessions"),
+    ("get", "/api/v1/admin/answers"),
+    ("get", "/api/v1/admin/answers/{answer_id}"),
+    ("get", "/api/v1/admin/feedback"),
+    ("get", "/api/v1/admin/logs"),
 }
 
 CITATION = {
