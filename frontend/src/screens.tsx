@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { api, ApiError, errorMessage, type Exam, type ExamAnswer, type FeedbackKind } from './api'
-import { asignaturas } from './mock'
+import { CorpusOptions } from './CorpusOptions'
 
 const difficultyLabels = { easy: 'Baja', medium: 'Media', hard: 'Alta' } as const
 
@@ -93,9 +93,7 @@ export function Examen() {
             <label>Asignatura
               <input name="subject" list="exam-subjects" required maxLength={200} />
             </label>
-            <datalist id="exam-subjects">
-              {asignaturas.map(({ nombre }) => <option key={nombre} value={nombre} />)}
-            </datalist>
+            <CorpusOptions subjectsId="exam-subjects" />
             <label>Tema <input name="topic" maxLength={200} /></label>
             <label>Cantidad de preguntas
               <input name="question_count" type="number" min={1} max={50} defaultValue={2} required />

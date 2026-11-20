@@ -103,6 +103,37 @@ uv run --frozen python -m app.rag eval
 - Reindexar sustituye en una transacción páginas y fragmentos de la versión vigente, como en SQLite. La fila de `documents` se actualiza en lugar de borrarse, para conservar autoría, fecha de creación e historial. Los embeddings se calculan antes de abrir la transacción: un fallo del proveedor o de escritura conserva la versión anterior. Las citas guardadas mantienen su copia (su `chunk_id` pasa a NULL).
 - Recuperación: distancia coseno de pgvector, ascendente, desempate por identificador, máximo cinco resultados, con el mismo formato que el índice SQLite (`score` es la distancia). Excluye documentos `retired` y vectores de otra dimensión. Filtros de año exacto y asignatura/tema sin distinguir mayúsculas ni espacios extremos. `search` siempre devuelve los vecinos más cercanos aunque sean poco relevantes; la respuesta de CU-01 descarta los que no comparten términos con la pregunta y superan `ATENEO_MAX_DISTANCE` (ver [RAG](rag-prototype.md#flujo)). No hay ranking híbrido.
 
+### Importar un corpus revisado con OCR
+
+Si el texto ya se revisó o recuperó mediante OCR en un índice SQLite de Ateneo, importarlo
+directamente evita perderlo al extraer otra vez los PDF originales:
+
+```powershell
+Set-Location backend
+$env:DATABASE_URL = "postgresql+psycopg://ateneo:<clave>@localhost:5432/ateneo"
+uv run --frozen alembic upgrade head
+uv run --frozen python -m app.rag ingest-index --index "C:/ruta/indice-local.sqlite" --embedder fake > resultado.json
+```
+
+El origen se abre en modo de solo lectura y en una instantánea consistente. Se validan metadatos,
+páginas, estado, versión SHA-256 y fragmentos regenerados (identificador, página, offsets y texto)
+antes de guardar cada documento. Se conservan las etiquetas de página, el OCR y las páginas
+`no_text`; no se modifica el índice ni se necesitan los PDF para esta transferencia.
+
+Como `ingest-dir`, actualiza los identificadores existentes en transacciones por documento:
+**reimportar reemplaza sus páginas y fragmentos**, conservando las copias de las citas guardadas.
+Hacer copia de la base antes de reimportar sobre un corpus utilizado. Un fallo de escritura o de
+embeddings revierte ese documento y continúa; el informe contiene `status: error` y la salida es 1.
+Un esquema o unas referencias corruptas detienen la lectura; los documentos ya confirmados
+permanecen en destino. El informe de una ejecución completada enumera los documentos procesados.
+
+La API y la web usan esa misma `DATABASE_URL`; no configurar `--index` en la aplicación.
+Consulta, generación y exámenes obtienen sus sugerencias de asignatura del corpus vigente
+(`GET /documents`); consulta y generación también sugieren sus temas. Las entradas manuales
+siguen disponibles si falla la carga de sugerencias. `fake` permite probar el flujo sin claves,
+pero no acredita calidad semántica ni académica. Usar el mismo embedder y dimensión al importar
+y al consultar; pasar a otro modelo requiere reindexar el corpus.
+
 ### Proveedores de embeddings
 
 | Nombre | Uso |
