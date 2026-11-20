@@ -17,7 +17,7 @@ services:
       - key: ATENEO_LLM_BASE_URL
         value: https://openrouter.ai/api/v1
       - key: ATENEO_LLM_MODEL
-        value: google/gemma-4-31b-it:free
+        value: nvidia/nemotron-3-ultra-550b-a55b:free
       - key: ATENEO_LLM_API_KEYS
         sync: false
       # Fase 1: embeddings de prueba; cambiarlos obliga a resubir el corpus.
