@@ -27,7 +27,7 @@ Todo error de `/api/v1` usa la misma forma:
 |---|---|---|
 | Estudiante | `student` | Consulta, generación, historial propio, exámenes, feedback, lectura del corpus vigente. |
 | Profesor | `teacher` | Lo anterior y gestión del corpus (subir, actualizar, retirar, ver retirados). |
-| Administrador | `admin` | Gestión del corpus (incluidos retirados) y envío de feedback. |
+| Administrador | `admin` | Gestión del corpus (incluidos retirados), envío de feedback y panel de [administración](#administración) (`/admin/*`, exclusivo). |
 
 Cada usuario tiene un único rol. Sin sesión válida: 401. Sin permiso: 403. Recurso de otro usuario (respuesta, examen): 404, para no revelar su existencia. Los permisos de la tabla de endpoints ya se aplican (dependencia `require_roles` en `backend/app/auth.py`): los stubs responden 401/403 antes del 501. Las rutas «Autor» solo exigen sesión; la comprobación de autoría corresponde a la tarea que las implemente (`GET /answers/{answer_id}` ya la aplica: 404 si no existe o es de otro usuario, también para Administrador).
 
@@ -72,6 +72,16 @@ Cada usuario tiene un único rol. Sin sesión válida: 401. Sin permiso: 403. Re
 | `GET /exams/{exam_id}` | CU-06 | AT-27 | Autor | `ExamOut` |
 | `GET /exams/{exam_id}/answers` | CU-06, CU-05 | AT-27 | Autor | `ExamAnswerOut[]` con citas |
 | `POST /feedback` | CU-10 | AT-28 | Todos | 201 `FeedbackOut`. 404 si la referencia a una respuesta o examen no existe o pertenece a otro usuario |
+| `GET /admin/stats` | — | #29 | Administrador | `AdminStats` |
+| `GET /admin/users` | — | #29 | Administrador | `AdminUserOut[]`; filtros `q`, `role`, `limit`, `offset` |
+| `POST /admin/users` | — | #29 | Administrador | 201 `AdminUserOut`; 409 si el correo existe |
+| `PATCH /admin/users/{user_id}` | — | #29 | Administrador | `AdminUserOut`; 409 por las reglas de protección |
+| `POST /admin/users/{user_id}/password` | — | #29 | Administrador | 204; revoca sesiones |
+| `DELETE /admin/users/{user_id}/sessions` | — | #29 | Administrador | 204 |
+| `GET /admin/answers` | — | #29 | Administrador | `AdminAnswerOut[]`; filtros `kind`, `status`, `user_id`, `limit`, `offset` |
+| `GET /admin/answers/{answer_id}` | — | #29 | Administrador | `AnswerOut` de cualquier autor |
+| `GET /admin/feedback` | — | #29 | Administrador | `AdminFeedbackOut[]`; filtros `kind`, `limit`, `offset` |
+| `GET /admin/logs` | — | #29 | Administrador | Entradas de log recientes; `level`, `q`, `limit` |
 
 El borrado del historial es físico y solo afecta al autor: elimina la respuesta y sus citas; el feedback vinculado queda sin referencia. No borra documentos, exámenes ni entradas de corpus.
 
@@ -92,6 +102,18 @@ Implementado en `backend/app/corpus.py`; las rutas de `api.py` solo lo invocan.
 `shortcut:` el PDF se procesa de forma síncrona y en memoria, y Starlette recibe el cuerpo entero antes de comprobar el límite; Nginx corta en 25 MB con `client_max_body_size` (ver [despliegue](deployment.md#límites-de-subida)). Basta para el tamaño del corpus del MVP; pasar a una cola de trabajos (respuesta 202 y estado `processing`) cuando las subidas tarden más que el timeout del proxy o se usen embeddings remotos con documentos grandes.
 
 `POST /generations` recibe `format` (`summary`, `outline`, `table`, `diagram`) y `prompt`; el contenido se devuelve como texto estructurado en `content` (ver [Generación](#generación-cu-02-at-17)). `POST /exams` recibe año, asignatura, tema opcional, `question_count` (1–50) y `difficulty` (`easy`, `medium`, `hard`). `POST /feedback` recibe `kind`: `rating` exige `rating` de 1 a 5; `error` y `suggestion` exigen `comment`. `answer_id` y `exam_id` vinculan opcionalmente el feedback.
+
+## Administración
+
+Rutas `/admin/*` en `backend/app/admin.py`, solo para `admin` (401 sin sesión, 403 otros roles). Listados como `GET /history`: array JSON con `limit` (1–100, 20 por defecto) y `offset`, más recientes primero (`created_at` y `id` descendentes).
+
+- **Resumen** (`GET /admin/stats`): `users` (`total`, `active`, `by_role` con todos los roles), `documents` (`total`, `active` = no retirados, `retired`, `pages` y `pages_without_text` de todos los documentos), `activity` (`queries`, `generations`, `exams`, `feedback`, `no_evidence` = respuestas con ese estado, y `last_7_days`: siete entradas `{date, queries, generations, exams}` de hace 6 días a hoy en UTC, incluidas las de cero).
+- **Cuentas**: `AdminUserOut` = `id`, `email`, `full_name`, `role`, `is_active`, `created_at`, `active_sessions` (sesiones no expiradas). `GET /admin/users` filtra con `q` (contiene en correo o nombre, sin mayúsculas) y `role`. `POST /admin/users` recibe `email`, `full_name`, `role`, `password`: el correo se guarda en minúsculas; 409 `conflict` si ya existe; 422 si la contraseña tiene menos de 8 caracteres o el correo no es válido. `PATCH /admin/users/{id}` recibe parcialmente `full_name`, `role`, `is_active`; desactivar revoca las sesiones; 409 si el admin intenta desactivarse o quitarse el rol a sí mismo, o si el sistema quedaría sin admin activo; 404 si no existe. `POST /admin/users/{id}/password` (`{"password"}`, mínimo 8) y `DELETE /admin/users/{id}/sessions` devuelven 204 y cierran todas las sesiones del usuario.
+- **Materiales**: se usan las rutas de corpus existentes (`GET /documents?include_retired=true`, etc.).
+- **Consultas y generaciones**: `GET /admin/answers` filtra por `kind` (valores de `AnswerKind`), `status` (`answered`/`no_evidence`) y `user_id`; cada elemento lleva `id`, `kind`, `status`, `question`, `user` (`id`, `email`, `full_name`), `citations` (número) y `created_at`. `GET /admin/answers/{id}` devuelve el `AnswerOut` completo de cualquier autor.
+- **Feedback**: `GET /admin/feedback` filtra por `kind`; cada elemento lleva `id`, `kind`, `rating`, `comment`, `answer_id`, `exam_id`, `user` (nulo si la cuenta se borró) y `created_at`.
+- **Logs**: `GET /admin/logs` devuelve las entradas tal como las emite `app.logs` (`ts`, `level`, `logger`, `message`, `request_id`, `method`, `path`, `status`, `duration_ms`, `exception`…), más recientes primero. `limit` de 1 a 500 (100 por defecto); `level` `INFO`, `WARNING` o `ERROR` (ese nivel o superior); `q` busca, sin mayúsculas, en `message`, `path` y `request_id`. `shortcut:` la fuente es un búfer en memoria con las últimas 1000 entradas del proceso: se pierde al reiniciar y no se comparte entre workers; los logs completos siguen en stdout (panel de Render). Nunca contiene cuerpos, tokens, contraseñas ni preguntas.
+- **Auditoría**: cada acción sobre cuentas emite el log `admin_action` con `action` (`user_create`, `user_update`, `password_reset`, `sessions_revoke`), `target_user_id` y `admin_user_id`, sin correos ni contraseñas.
 
 ## Contrato de citas (CU-05)
 
@@ -216,11 +238,12 @@ uv run --frozen alembic upgrade head
 
 `backend/tests/test_corpus.py` prueba CU-03 y la reindexación en SQLite en memoria con claves foráneas activas: `store_document` es el real y solo se sustituye la búsqueda pgvector por una por términos con el mismo filtro de retirados. Comprueba subida, filtros, página, 409/404/413/422/503, roles, historial, que tras `PUT` solo se recupera la versión nueva y la cita antigua sigue como copia, y que tras `DELETE` la consulta devuelve `no_evidence`. Con `ATENEO_TEST_DATABASE_URL` repite subir → actualizar → retirar contra PostgreSQL/pgvector.
 
+`backend/tests/test_admin.py` prueba las rutas `/admin/*` en SQLite en memoria: permisos, resumen, alta y edición de cuentas con sus reglas 409, revocación de sesiones, listados con filtros y logs sin secretos.
+
 `backend/tests/test_queries.py` prueba CU-01 y la validación de citas en SQLite en memoria, sustituyendo solo la recuperación pgvector por una falsa; `backend/tests/test_generations.py` hace lo mismo con CU-02 (los cuatro formatos, estructura inválida, roles, 503) y casos dorados de los generadores sobre la muestra; con `ATENEO_TEST_DATABASE_URL` además recorre la consulta completa con la muestra indexada en PostgreSQL.
 
 ## Pendiente
 
-- Gestión de usuarios desde la API o la interfaz; la consola ya cubre alta, contraseña, rol, baja y listado.
-- Consulta del feedback por administradores y profesores (AT-28).
+- Consulta del feedback por profesores (AT-28); los administradores ya lo ven en `GET /admin/feedback`.
 - Procesamiento asíncrono de subidas (ver el `shortcut` de la gestión del corpus).
 - Dimensión del embedding e índice vectorial (AT-14).

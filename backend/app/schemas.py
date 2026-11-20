@@ -1,6 +1,6 @@
 """Esquemas Pydantic del contrato /api/v1. Ver docs/api-contract.md."""
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated, Any, Literal, Self
 
 from fastapi import UploadFile
@@ -240,4 +240,101 @@ class FeedbackRequest(Contract):
 
 class FeedbackOut(FeedbackRequest):
     id: int
+    created_at: datetime
+
+
+# Administración
+
+
+Password = Annotated[str, Field(min_length=8, max_length=200)]  # MIN_PASSWORD de app.auth
+Name = Annotated[str, Field(min_length=1, max_length=200)]
+
+
+class AdminUserOut(Contract):
+    id: int
+    email: str
+    full_name: str
+    role: Role
+    is_active: bool
+    created_at: datetime
+    active_sessions: int
+
+
+class AdminUserCreate(Contract):
+    email: Annotated[str, Field(max_length=320, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")]
+    full_name: Name
+    role: Role
+    password: Password
+
+
+class AdminUserUpdate(Contract):
+    full_name: Name | None = None
+    role: Role | None = None
+    is_active: bool | None = None
+
+
+class PasswordReset(Contract):
+    password: Password
+
+
+class UserRef(Contract):
+    id: int
+    email: str
+    full_name: str
+
+
+class UserStats(Contract):
+    total: int
+    active: int
+    by_role: dict[Role, int]
+
+
+class DocumentStats(Contract):
+    total: int
+    active: int
+    retired: int
+    pages: int
+    pages_without_text: int
+
+
+class DayActivity(Contract):
+    date: date
+    queries: int
+    generations: int
+    exams: int
+
+
+class ActivityStats(Contract):
+    queries: int
+    generations: int
+    exams: int
+    feedback: int
+    no_evidence: int
+    last_7_days: list[DayActivity]
+
+
+class AdminStats(Contract):
+    users: UserStats
+    documents: DocumentStats
+    activity: ActivityStats
+
+
+class AdminAnswerOut(Contract):
+    id: int
+    kind: AnswerKind
+    status: AnswerStatus
+    question: str
+    user: UserRef
+    citations: int
+    created_at: datetime
+
+
+class AdminFeedbackOut(Contract):
+    id: int
+    kind: FeedbackKind
+    rating: int | None
+    comment: str | None
+    answer_id: int | None
+    exam_id: int | None
+    user: UserRef | None
     created_at: datetime
