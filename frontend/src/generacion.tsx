@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router'
 import { api, errorMessage, type Answer, type Citation, type GenerationFormat, type GenerationRequest } from './api'
 import { Citations, MarkedText } from './consulta'
-import { asignaturas } from './mock'
+import { CorpusOptions } from './CorpusOptions'
 
 const formats: Record<GenerationFormat, string> = {
   summary: 'Resumen',
@@ -48,14 +48,13 @@ export function Generacion() {
     }
   }
 
-  const temas = asignaturas.find((a) => a.nombre === subject)?.temas ?? asignaturas.flatMap((a) => a.temas)
   const marked: Marked | null = answer && { citas: answer.citations, onSelect: setSelected }
 
   return (
     <>
       <h1>Generación de material</h1>
-      <form onSubmit={submit} aria-busy={state === 'loading'}>
-        <fieldset>
+      <form className="card" onSubmit={submit} aria-busy={state === 'loading'}>
+        <fieldset className="options">
           <legend>Formato</legend>
           {Object.entries(formats).map(([value, label]) => (
             <label key={value} className="choice">
@@ -81,9 +80,7 @@ export function Generacion() {
             <input name="topic" list="gen-temas" maxLength={200} />
           </label>
         </div>
-        {/* shortcut: sugerencias de mock.ts, igual que Consulta; sustituir por GET /documents (AT-10). */}
-        <datalist id="gen-asignaturas">{asignaturas.map((a) => <option key={a.nombre} value={a.nombre} />)}</datalist>
-        <datalist id="gen-temas">{temas.map((t) => <option key={t} value={t} />)}</datalist>
+        <CorpusOptions subjectsId="gen-asignaturas" topicsId="gen-temas" subject={subject} />
         <label>
           Contenido a sintetizar (tema o pregunta)
           <textarea
@@ -94,9 +91,9 @@ export function Generacion() {
         <button type="submit" disabled={state === 'loading'}>Generar</button>
       </form>
 
-      <p role="status" className="note">{state === 'loading' ? 'Generando a partir del corpus…' : ''}</p>
+      <p role="status" className="loading">{state === 'loading' ? 'Generando a partir del corpus…' : ''}</p>
 
-      {state === 'idle' && <p className="note">Aún no has generado material.</p>}
+      {state === 'idle' && <p className="empty">Aún no has generado material.</p>}
 
       {state === 'error' && (
         <p id="generacion-error" className="status error" role="alert" tabIndex={-1} ref={(el) => { focusRef.current = el }}>{error}</p>
@@ -111,7 +108,7 @@ export function Generacion() {
             ? <p className="status">{answer.content || 'El corpus no contiene material que respalde este contenido.'}</p>
             : <Material answer={answer} {...marked} />}
           {answer.citations.length > 0 && <Citations citas={answer.citations} selected={selected} onSelect={setSelected} />}
-          <Link to={`/feedback?answer_id=${answer.id}`}>Enviar feedback de esta respuesta</Link>
+          <Link className="feedback-link" to={`/feedback?answer_id=${answer.id}`}>Enviar feedback de esta respuesta</Link>
         </section>
       )}
     </>
@@ -162,21 +159,23 @@ function Outline({ items, ...marked }: { items: Item[] } & Marked) {
 function Table({ rows, caption, ...marked }: { rows: string[]; caption: string } & Marked) {
   const [header, , ...body] = rows.map((row) => row.trim().replace(/^\||\|$/g, '').split('|').map((cell) => cell.trim()))
   return (
-    <table>
-      <caption>{caption}</caption>
-      <thead>
-        <tr>{header.map((cell, i) => <th key={i} scope="col">{cell}</th>)}</tr>
-      </thead>
-      <tbody>
-        {body.map((row, r) => (
-          <tr key={r}>
-            {row.map((cell, i) => i === 0
-              ? <th key={i} scope="row"><MarkedText text={cell} {...marked} /></th>
-              : <td key={i}><MarkedText text={cell} {...marked} /></td>)}
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <div className="table-wrap" role="region" aria-label={caption} tabIndex={0}>
+      <table>
+        <caption>{caption}</caption>
+        <thead>
+          <tr>{header.map((cell, i) => <th key={i} scope="col">{cell}</th>)}</tr>
+        </thead>
+        <tbody>
+          {body.map((row, r) => (
+            <tr key={r}>
+              {row.map((cell, i) => i === 0
+                ? <th key={i} scope="row"><MarkedText text={cell} {...marked} /></th>
+                : <td key={i}><MarkedText text={cell} {...marked} /></td>)}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }
 

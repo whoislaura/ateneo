@@ -164,7 +164,7 @@ export function Corpus() {
     <>
       <h1>Gestión de corpus</h1>
 
-      <section aria-labelledby="corpus-form-title">
+      <section aria-labelledby="corpus-form-title" className="card">
         <h2 id="corpus-form-title" tabIndex={-1} ref={headingRef}>
           {editing ? `Actualizar «${editing.title}»` : 'Subir material'}
         </h2>
@@ -229,7 +229,7 @@ export function Corpus() {
 
       <p role="status" className={notice ? 'status ok' : undefined} tabIndex={-1} ref={noticeRef}>{notice}</p>
 
-      <section aria-labelledby="corpus-list-title" className="result">
+      <section aria-labelledby="corpus-list-title" className="card">
         <h2 id="corpus-list-title">Material registrado</h2>
         <form onSubmit={filter} aria-label="Filtrar material">
           <div className="fields">
@@ -252,51 +252,53 @@ export function Corpus() {
           <label className="choice">
             <input type="checkbox" name="include_retired" /> Incluir retirados
           </label>
-          <button type="submit">Filtrar</button>
+          <button type="submit" className="secondary">Filtrar</button>
         </form>
 
         {listError && (
           <>
             <p className="status error" role="alert">{listError}</p>
-            <button type="button" onClick={() => { setDocs(null); setListError(''); setReload((n) => n + 1) }}>Reintentar</button>
+            <button type="button" className="secondary" onClick={() => { setDocs(null); setListError(''); setReload((n) => n + 1) }}>Reintentar</button>
           </>
         )}
-        {docs === null && !listError && <p role="status" className="note">Cargando el corpus…</p>}
-        {docs?.length === 0 && <p className="note">No hay material con estos filtros.</p>}
+        {docs === null && !listError && <p role="status" className="loading">Cargando el corpus…</p>}
+        {docs?.length === 0 && <p className="empty">No hay material con estos filtros.</p>}
         {docs && docs.length > 0 && (
-          <table>
-            <caption>Documentos ({docs.length})</caption>
-            <thead>
-              <tr>
-                <th scope="col">Título</th><th scope="col">Identificador</th><th scope="col">Año</th><th scope="col">Asignatura</th>
-                <th scope="col">Tema</th><th scope="col">Archivo</th><th scope="col">Estado</th><th scope="col">Actualizado</th><th scope="col">Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {docs.map((doc) => (
-                <tr key={doc.id}>
-                  <td>{doc.title}</td><td><code>{doc.id}</code></td><td>{doc.year}.º</td><td>{doc.subject}</td><td>{doc.topic}</td>
-                  <td>{doc.filename}</td><td>{statusLabels[doc.status]}</td>
-                  <td><time dateTime={doc.updated_at}>{new Date(doc.updated_at).toLocaleDateString('es')}</time></td>
-                  <td>
-                    <div className="actions">
-                      <button type="button" className="secondary" disabled={busy} onClick={() => startEditing(doc)} aria-label={`Actualizar ${doc.title}`}>
-                        Actualizar
-                      </button>
-                      {doc.status !== 'retired' && (
-                        <button
-                          type="button" className="secondary" disabled={retiring === doc.id}
-                          onClick={() => setConfirm({ kind: 'retire', doc })} aria-label={`Retirar ${doc.title}`}
-                        >
-                          {retiring === doc.id ? 'Retirando…' : 'Retirar'}
-                        </button>
-                      )}
-                    </div>
-                  </td>
+          <div className="table-wrap" role="region" aria-label="Documentos" tabIndex={0}>
+            <table>
+              <caption>Documentos ({docs.length})</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Título</th><th scope="col">Identificador</th><th scope="col">Año</th><th scope="col">Asignatura</th>
+                  <th scope="col">Tema</th><th scope="col">Archivo</th><th scope="col">Estado</th><th scope="col">Actualizado</th><th scope="col">Acciones</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {docs.map((doc) => (
+                  <tr key={doc.id}>
+                    <td>{doc.title}</td><td><code>{doc.id}</code></td><td>{doc.year}.º</td><td>{doc.subject}</td><td>{doc.topic}</td>
+                    <td>{doc.filename}</td><td><span className={`badge ${doc.status}`}>{statusLabels[doc.status]}</span></td>
+                    <td><time dateTime={doc.updated_at}>{new Date(doc.updated_at).toLocaleDateString('es')}</time></td>
+                    <td>
+                      <div className="actions">
+                        <button type="button" className="secondary small" disabled={busy} onClick={() => startEditing(doc)} aria-label={`Actualizar ${doc.title}`}>
+                          Actualizar
+                        </button>
+                        {doc.status !== 'retired' && (
+                          <button
+                            type="button" className="secondary danger small" disabled={retiring === doc.id}
+                            onClick={() => setConfirm({ kind: 'retire', doc })} aria-label={`Retirar ${doc.title}`}
+                          >
+                            {retiring === doc.id ? 'Retirando…' : 'Retirar'}
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </section>
 
@@ -311,7 +313,7 @@ export function Corpus() {
             </p>
             <div className="actions">
               <button type="button" className="secondary" autoFocus onClick={() => setConfirm(null)}>Cancelar</button>
-              <button type="button" onClick={accept}>{confirm.kind === 'retire' ? 'Retirar' : 'Sustituir'}</button>
+              <button type="button" className={confirm.kind === 'retire' ? 'danger' : undefined} onClick={accept}>{confirm.kind === 'retire' ? 'Retirar' : 'Sustituir'}</button>
             </div>
           </>
         )}

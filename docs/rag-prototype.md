@@ -84,14 +84,14 @@ uv run --frozen python -m app.rag ask --index ../data/sample.sqlite --question "
 
 ## Preguntas doradas
 
-`backend/app/rag/golden_questions.json` contiene el set inicial, sintético y basado solo en la muestra ficticia: seis preguntas con documento, página y texto citado esperados y cuatro que deben rechazarse (fuera del corpus, filtro sin documentos y pregunta sin términos). Una pregunta con fuentes esperadas pasa si cita al menos una de ellas, con el `quote` esperado si se indica, y ninguna cita es inválida; una sin fuentes pasa si devuelve `no_evidence`. `backend/tests/test_rag_answer.py` las ejecuta con el índice SQLite y el proveedor `fake`, y comprueba que cada `quote` es exactamente `página.text[start:end]`. `backend/tests/test_rag_vector.py` las ejecuta además por pgvector con el embedder `fake` (requiere `ATENEO_TEST_DATABASE_URL`) y comprueba que las preguntas fuera del corpus no llegan al modelo aunque pgvector devuelva vecinos.
+`backend/app/rag/golden_questions.json` contiene el set sintético basado solo en la muestra ficticia: preguntas en el corpus con documento, página y texto citado esperados, fuera del corpus, con filtros equivocados, con instrucciones inyectadas y con premisas falsas. Categorías, reglas de aprobado y resultados en [QA del RAG](qa-rag.md). `backend/tests/test_rag_answer.py` las ejecuta con el índice SQLite y el proveedor `fake`, y comprueba que cada `quote` es exactamente `página.text[start:end]`. `backend/tests/test_rag_vector.py` las ejecuta además por pgvector con el embedder `fake` (requiere `ATENEO_TEST_DATABASE_URL`) y comprueba que las preguntas fuera del corpus no llegan al modelo aunque pgvector devuelva vecinos.
 
 Con el corpus oficial, el set debe sustituirse por preguntas revisadas por docentes para cada asignatura.
 
 ## Límites
 
 - `ATENEO_MAX_DISTANCE` es una hipótesis: depende del modelo de embeddings y debe calibrarse con preguntas doradas reales al elegirlo. Un término común muy frecuente (p. ej. «derecho») basta para que un fragmento pase; el rechazo final depende entonces del modelo y de la verificación.
-- La verificación comprueba que la cita exista tal cual en la página vigente, no que el fragmento respalde la afirmación.
+- La verificación comprueba que la cita exista tal cual en la página vigente, no que el fragmento respalde la afirmación; solo las cifras de la afirmación deben aparecer en el fragmento citado.
 - La oración citada se elige por términos comunes con la afirmación; las abreviaturas con punto («art.») y los saltos de línea la cortan. Si no coincide ninguna, se cita el fragmento entero.
 - Solo se reconocen marcas `[Fn]`; otros formatos cuentan como respuesta sin cita. Las marcas `[n]` que escriba el modelo se eliminan.
 - El proveedor `fake` y el embedder `fake` no miden calidad; solo verifican el recorrido completo.

@@ -97,51 +97,53 @@ export function Historial() {
       {notice && (
         <p role="status" className="status ok" tabIndex={-1} ref={noticeRef}>{notice}</p>
       )}
-      {loading && <p role="status">Cargando el historial…</p>}
+      {loading && <p role="status" className="loading">Cargando el historial…</p>}
       {error && (
         <>
           <p className="status error" role="alert" tabIndex={-1} ref={errorRef}>{error}</p>
-          <button type="button" onClick={() => load(offset)}>Reintentar</button>
+          <button type="button" className="secondary" onClick={() => load(offset)}>Reintentar</button>
         </>
       )}
       {entries?.length === 0 && (
-        <p role="status">{offset === 0 ? 'Todavía no tienes consultas ni generaciones.' : 'No hay más entradas.'}</p>
+        <p role="status" className="empty">{offset === 0 ? 'Todavía no tienes consultas ni generaciones.' : 'No hay más entradas.'}</p>
       )}
       {entries && entries.length > 0 && (
-        <table>
-          <caption>Actividad reciente</caption>
-          <thead>
-            <tr>
-              <th scope="col">Fecha</th><th scope="col">Acción</th><th scope="col">Resumen</th>
-              <th scope="col">Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            {entries.slice(0, pageSize).map((entry) => (
-              <tr key={entry.id}>
-                <td><time dateTime={entry.created_at}>{date.format(new Date(entry.created_at))}</time></td>
-                <td>{labels[entry.action]}</td>
-                <td>{entry.summary}</td>
-                <td>
-                  <button
-                    type="button"
-                    className="secondary"
-                    disabled={busy}
-                    aria-label={`Eliminar ${labels[entry.action].toLowerCase()}: ${entry.summary}`}
-                    onClick={() => setConfirm({ kind: 'one', entry })}
-                  >
-                    Eliminar
-                  </button>
-                </td>
+        <div className="table-wrap" role="region" aria-label="Actividad reciente" tabIndex={0}>
+          <table>
+            <caption>Actividad reciente</caption>
+            <thead>
+              <tr>
+                <th scope="col">Fecha</th><th scope="col">Acción</th><th scope="col">Resumen</th>
+                <th scope="col">Acciones</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {entries.slice(0, pageSize).map((entry) => (
+                <tr key={entry.id}>
+                  <td><time dateTime={entry.created_at}>{date.format(new Date(entry.created_at))}</time></td>
+                  <td><span className={`badge ${entry.action}`}>{labels[entry.action]}</span></td>
+                  <td>{entry.summary}</td>
+                  <td>
+                    <button
+                      type="button"
+                      className="secondary"
+                      disabled={busy}
+                      aria-label={`Eliminar ${labels[entry.action].toLowerCase()}: ${entry.summary}`}
+                      onClick={() => setConfirm({ kind: 'one', entry })}
+                    >
+                      Eliminar
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
       {(offset > 0 || (entries && entries.length > pageSize)) && (
-        <div className="fields" role="group" aria-label="Paginación del historial">
-          <button type="button" disabled={busy || loading || offset === 0} onClick={() => load(offset - pageSize)}>Anterior</button>
-          <button type="button" disabled={busy || !entries || entries.length <= pageSize} onClick={() => load(offset + pageSize)}>Siguiente</button>
+        <div className="actions pager" role="group" aria-label="Paginación del historial">
+          <button type="button" className="secondary" disabled={busy || loading || offset === 0} onClick={() => load(offset - pageSize)}>Anterior</button>
+          <button type="button" className="secondary" disabled={busy || !entries || entries.length <= pageSize} onClick={() => load(offset + pageSize)}>Siguiente</button>
         </div>
       )}
 

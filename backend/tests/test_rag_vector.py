@@ -137,6 +137,7 @@ def test_postgres_ingestion_reindex_and_vector_search(monkeypatch, tmp_path):
         assert [(r["document_id"], r["status"]) for r in reports] == [
             ("muestra-a", "partial"),
             ("muestra-b", "indexed"),
+            ("muestra-c", "indexed"),
         ]
 
         with Session(engine) as session:

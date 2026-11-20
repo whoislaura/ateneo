@@ -19,7 +19,7 @@ Todo error de `/api/v1` usa la misma forma:
 {"error": {"code": "validation_error", "message": "Solicitud inválida.", "details": [...]}}
 ```
 
-`code` es estable y legible por máquina; `message` se puede mostrar; `details` es opcional (en 422 contiene la lista de campos inválidos de FastAPI con `loc`, `msg` y `type`). Códigos usados: 401 `unauthorized`, 403 `forbidden`, 404 `not_found`, 409 `conflict`, 413 `request_entity_too_large`, 422 `validation_error`, 501 `not_implemented`, 503 `service_unavailable` (el proveedor de IA o de embeddings falló o está mal configurado; no se guarda nada). Cambiar esta forma exige una nueva versión de la API (`/api/v2`).
+`code` es estable y legible por máquina; `message` se puede mostrar; `details` es opcional (en 422 contiene la lista de campos inválidos de FastAPI con `loc`, `msg` y `type`). Códigos usados: 401 `unauthorized`, 403 `forbidden`, 404 `not_found`, 409 `conflict`, 413 `request_entity_too_large`, 422 `validation_error`, 429 `too_many_requests` (con cabecera `Retry-After` en segundos), 501 `not_implemented`, 503 `service_unavailable` (el proveedor de IA o de embeddings falló o está mal configurado; no se guarda nada). Cambiar esta forma exige una nueva versión de la API (`/api/v2`).
 
 ## Roles
 
@@ -35,6 +35,7 @@ Cada usuario tiene un único rol. Sin sesión válida: 401. Sin permiso: 403. Re
 
 - `POST /auth/login` con `email` y `password`. El correo se compara sin distinguir mayúsculas. Correo inexistente, contraseña errónea y usuario inactivo devuelven el mismo 401 `Correo o contraseña incorrectos.`, con el mismo coste de cálculo.
 - El token es opaco (256 bits aleatorios), no un JWT. La base guarda solo su SHA-256 en `auth_sessions`, con expiración fija de `expires_in` segundos (`ATENEO_TOKEN_TTL_SECONDS`, 8 h por defecto). Se eligió frente a JWT porque `POST /auth/logout` debe invalidar el token y así no hace falta clave de firma.
+- Tras `ATENEO_LOGIN_MAX_ATTEMPTS` fallos (5) para un correo, o `ATENEO_LOGIN_IP_MAX_ATTEMPTS` (50) desde una IP, en una ventana fija de `ATENEO_LOGIN_WINDOW_SECONDS` (900 s), el login responde 429 `too_many_requests` con `Retry-After` hasta que acabe la ventana, aunque la contraseña sea correcta. Cuentan también los correos inexistentes. Un login correcto pone a cero el contador de la cuenta, no el de la IP. La IP del cliente se obtiene como se explica en el [despliegue](deployment.md#límite-de-intentos-de-login).
 - `POST /auth/logout` borra la sesión. Un token expirado, revocado o de un usuario inactivo recibe 401 con `WWW-Authenticate: Bearer`.
 - Contraseñas con scrypt de la biblioteca estándar (sal aleatoria, parámetros guardados en el hash) y comparación en tiempo constante.
 - No hay registro público. Alta de usuarios desde `backend/` con `DATABASE_URL` definida; la contraseña se pide por consola:

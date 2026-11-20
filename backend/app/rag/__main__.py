@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.db import session_factory
 from app.rag import vector
 from app.rag.answer import PROVIDERS, answer_question, evaluate
-from app.rag.index import index_document, search
+from app.rag.index import index_document, read_documents, search
 from app.rag.ingestion import ChunkSettings, DocumentMetadata, extract_pdf
 
 
@@ -43,6 +43,38 @@ def ingest_folder(folder: Path, settings: ChunkSettings, embedder: vector.Embedd
     return results
 
 
+def eval_report(report: dict) -> str:
+    """Una línea por pregunta (estado, citas, respuesta o error) y el total."""
+    lines = []
+    for r in report["results"]:
+        cited = ", ".join(f"{c['document_id']} p. {c['page']}" for c in r.get("citations", []))
+        detail = r.get("error") or " ".join(r["answer"].split())[:160]
+        lines.append(
+            f"{'OK   ' if r['passed'] else 'FALLA'} {r['id']} {r['status']} [{cited}] {detail}"
+        )
+        lines += [f"      cita inválida: {i.get('reason')}" for i in r.get("invalid_citations", [])]
+    return "\n".join(lines + [f"Total: {report['passed']}/{report['total']} correctas"])
+
+
+def ingest_index(path: Path, embedder: vector.Embedder) -> list[dict]:
+    """Importa texto revisado, incluidos OCR y páginas vacías, en la base de la aplicación."""
+    results = []
+    with database_session() as session:
+        for document in read_documents(path):
+            try:
+                results.append(vector.store_document(session, document, embedder))
+            except (ValueError, OSError, SQLAlchemyError) as exc:
+                session.rollback()
+                results.append(
+                    {
+                        "document_id": document.metadata.document_id,
+                        "status": "error",
+                        "error": str(exc),
+                    }
+                )
+    return results
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Ingestión e índice textual de muestra de Ateneo")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -61,6 +93,11 @@ def main(argv: list[str] | None = None) -> int:
     folder.add_argument("--chunk-size", type=int, default=1200)
     folder.add_argument("--overlap", type=int, default=200)
     folder.add_argument("--embedder", choices=vector.EMBEDDERS, default="fake")
+    imported = commands.add_parser(
+        "ingest-index", help="Importar un índice SQLite revisado a PostgreSQL, conservando OCR"
+    )
+    imported.add_argument("--index", type=Path, required=True)
+    imported.add_argument("--embedder", choices=vector.EMBEDDERS, default="fake")
     lookup = commands.add_parser("search", help="Buscar fragmentos con referencia de origen")
     lookup.add_argument("--index", type=Path)
     lookup.add_argument("--query", required=True)
@@ -81,6 +118,7 @@ def main(argv: list[str] | None = None) -> int:
         "--golden", type=Path, default=Path(__file__).with_name("golden_questions.json")
     )
     golden.add_argument("--provider", choices=PROVIDERS, default="fake")
+    golden.add_argument("--json", action="store_true", help="Resultado completo en JSON")
     for command in (lookup, ask, golden):
         command.add_argument("--embedder", choices=vector.EMBEDDERS, default="fake")
     args = parser.parse_args(argv)
@@ -105,6 +143,8 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "ingest-dir":
             settings = ChunkSettings(max_chars=args.chunk_size, overlap=args.overlap)
             result = ingest_folder(args.folder, settings, vector.EMBEDDERS[args.embedder])
+        elif args.command == "ingest-index":
+            result = ingest_index(args.index, vector.EMBEDDERS[args.embedder])
         elif args.command == "ask":
             result = answer_question(
                 source,
@@ -148,8 +188,11 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
-    print(json.dumps(result, ensure_ascii=False, indent=2))
-    if args.command == "ingest-dir":
+    if args.command == "eval" and not args.json:
+        print(eval_report(result))
+    else:
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    if args.command in ("ingest-dir", "ingest-index"):
         return int(any(item["status"] == "error" for item in result))
     return 1 if args.command == "eval" and result["passed"] < result["total"] else 0
 
