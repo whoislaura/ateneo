@@ -15,7 +15,7 @@ En desarrollo Vite redirige `/api` a `http://127.0.0.1:8000`; en producción lo 
 
 ## Sesión (CU-00, AT-20)
 
-- Login con correo y contraseña (`POST /auth/login`). Ante cualquier 401/422 se muestra el mismo mensaje genérico, «Correo o contraseña incorrectos.», sin distinguir el motivo; otros fallos muestran «No se pudo iniciar sesión».
+- Login con correo y contraseña (`POST /auth/login`). Ante cualquier 401/422 se muestra el mismo mensaje genérico, «Correo o contraseña incorrectos.», sin distinguir el motivo; un 429 muestra el mensaje del backend (cuántos minutos esperar) y otros fallos «No se pudo iniciar sesión».
 - **Token:** en memoria (variable del módulo `api.ts`) con copia en `sessionStorage` (`ateneo.token`). Así sobrevive a recargar la pestaña, desaparece al cerrarla y no se comparte entre pestañas; no se usa `localStorage` para no dejar tokens persistentes en el equipo, frecuente en ordenadores compartidos de la facultad. Cualquier script inyectado (XSS) podría leerlo igual que si estuviera solo en memoria; la mitigación es no insertar HTML sin escapar (React escapa por defecto) y la caducidad de 8 h del backend. Nunca se registra en consola.
 - Al arrancar con un token guardado se llama a `GET /auth/me`; mientras tanto se muestra «Comprobando la sesión…». Si falla, se vuelve al login.
 - «Cerrar sesión» llama a `POST /auth/logout` y descarta el token aunque la llamada falle.

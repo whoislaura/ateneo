@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router'
 import { api, errorMessage, type Answer, type Citation, type Page, type QueryRequest } from './api'
-import { asignaturas } from './mock'
+import { CorpusOptions } from './CorpusOptions'
 
 const pageName = (cita: Citation) => `p. ${cita.page_label ?? cita.page_number}`
 
@@ -35,8 +35,6 @@ export function Consulta() {
     }
   }
 
-  const temas = asignaturas.find((a) => a.nombre === subject)?.temas ?? asignaturas.flatMap((a) => a.temas)
-
   return (
     <>
       <h1>Consulta</h1>
@@ -59,9 +57,7 @@ export function Consulta() {
             <input name="topic" list="temas" maxLength={200} />
           </label>
         </div>
-        {/* shortcut: sugerencias de mock.ts; sustituir por las clasificaciones de GET /documents cuando exista (AT-10). */}
-        <datalist id="asignaturas">{asignaturas.map((a) => <option key={a.nombre} value={a.nombre} />)}</datalist>
-        <datalist id="temas">{temas.map((t) => <option key={t} value={t} />)}</datalist>
+        <CorpusOptions subjectsId="asignaturas" topicsId="temas" subject={subject} />
         <label>
           Pregunta
           <textarea

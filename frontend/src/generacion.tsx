@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router'
 import { api, errorMessage, type Answer, type Citation, type GenerationFormat, type GenerationRequest } from './api'
 import { Citations, MarkedText } from './consulta'
-import { asignaturas } from './mock'
+import { CorpusOptions } from './CorpusOptions'
 
 const formats: Record<GenerationFormat, string> = {
   summary: 'Resumen',
@@ -48,7 +48,6 @@ export function Generacion() {
     }
   }
 
-  const temas = asignaturas.find((a) => a.nombre === subject)?.temas ?? asignaturas.flatMap((a) => a.temas)
   const marked: Marked | null = answer && { citas: answer.citations, onSelect: setSelected }
 
   return (
@@ -81,9 +80,7 @@ export function Generacion() {
             <input name="topic" list="gen-temas" maxLength={200} />
           </label>
         </div>
-        {/* shortcut: sugerencias de mock.ts, igual que Consulta; sustituir por GET /documents (AT-10). */}
-        <datalist id="gen-asignaturas">{asignaturas.map((a) => <option key={a.nombre} value={a.nombre} />)}</datalist>
-        <datalist id="gen-temas">{temas.map((t) => <option key={t} value={t} />)}</datalist>
+        <CorpusOptions subjectsId="gen-asignaturas" topicsId="gen-temas" subject={subject} />
         <label>
           Contenido a sintetizar (tema o pregunta)
           <textarea
