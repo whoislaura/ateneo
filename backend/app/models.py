@@ -257,7 +257,9 @@ class Citation(Base):
         ForeignKey("exam_questions.id", ondelete="CASCADE"), index=True
     )
     position: Mapped[int] = mapped_column(SmallInteger)  # orden [1], [2]… dentro del texto
-    chunk_id: Mapped[str | None] = mapped_column(ForeignKey("chunks.id", ondelete="SET NULL"))
+    chunk_id: Mapped[str | None] = mapped_column(
+        ForeignKey("chunks.id", ondelete="SET NULL"), index=True
+    )
     document_id: Mapped[str] = mapped_column(String(200))
     document_title: Mapped[str] = mapped_column(Text)
     document_version: Mapped[str] = mapped_column(String(64))
@@ -278,8 +280,12 @@ class HistoryEntry(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     action: Mapped[HistoryAction] = mapped_column(enum_type(HistoryAction, "history_action"))
     summary: Mapped[str] = mapped_column(Text)
-    answer_id: Mapped[int | None] = mapped_column(ForeignKey("answers.id", ondelete="SET NULL"))
-    exam_id: Mapped[int | None] = mapped_column(ForeignKey("exams.id", ondelete="SET NULL"))
+    answer_id: Mapped[int | None] = mapped_column(
+        ForeignKey("answers.id", ondelete="SET NULL"), index=True
+    )
+    exam_id: Mapped[int | None] = mapped_column(
+        ForeignKey("exams.id", ondelete="SET NULL"), index=True
+    )
     document_id: Mapped[str | None] = mapped_column(ForeignKey("documents.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = created_at()
 
@@ -296,6 +302,10 @@ class Feedback(Base):
     kind: Mapped[FeedbackKind] = mapped_column(enum_type(FeedbackKind, "feedback_kind"))
     rating: Mapped[int | None] = mapped_column(SmallInteger)
     comment: Mapped[str | None] = mapped_column(Text)
-    answer_id: Mapped[int | None] = mapped_column(ForeignKey("answers.id", ondelete="SET NULL"))
-    exam_id: Mapped[int | None] = mapped_column(ForeignKey("exams.id", ondelete="SET NULL"))
+    answer_id: Mapped[int | None] = mapped_column(
+        ForeignKey("answers.id", ondelete="SET NULL"), index=True
+    )
+    exam_id: Mapped[int | None] = mapped_column(
+        ForeignKey("exams.id", ondelete="SET NULL"), index=True
+    )
     created_at: Mapped[datetime] = created_at()
