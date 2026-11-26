@@ -223,6 +223,12 @@ def test_exam_uses_current_corpus_and_keeps_solutions_private(client, factory, p
     assert len({exam["questions"][0]["statement"] for exam in exams}) == 3
     assert get(client, "/exams", Role.STUDENT).json() == list(reversed(exams))
     assert get(client, "/exams").json() == []
+    newest_first = list(reversed(exams))
+    assert get(client, "/exams?limit=2", Role.STUDENT).json() == newest_first[:2]
+    assert get(client, "/exams?limit=2&offset=2", Role.STUDENT).json() == newest_first[2:]
+    assert get(client, "/exams?offset=3", Role.STUDENT).json() == []
+    for bad in ("limit=0", "limit=101", "offset=-1", "offset=1000001"):
+        assert get(client, f"/exams?{bad}", Role.STUDENT).status_code == 422
     path = f"/exams/{exams[0]['id']}"
     assert get(client, path, Role.STUDENT).json() == exams[0]
     assert get(client, path).status_code == 404

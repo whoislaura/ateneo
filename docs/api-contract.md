@@ -68,7 +68,7 @@ Cada usuario tiene un único rol. Sin sesión válida: 401. Sin permiso: 403. Re
 | `DELETE /history/{entry_id}` | CU-04 | AT-11 | Autor | 204; borra la consulta o generación y su respuesta guardada |
 | `DELETE /history` | CU-04 | AT-11 | Autor | 204; borra todas sus consultas y generaciones con sus respuestas |
 | `POST /exams` | CU-06 | AT-27 | Estudiante, Profesor | 201 `ExamOut` sin respuestas. 422 si el corpus no permite generar la cantidad solicitada |
-| `GET /exams` | CU-06 | AT-27 | Estudiante, Profesor | `ExamOut[]` propios |
+| `GET /exams` | CU-06 | AT-27 | Estudiante, Profesor | `ExamOut[]` propios, más recientes primero. `limit` de 1 a 100 (20 por defecto), `offset` desde 0 |
 | `GET /exams/{exam_id}` | CU-06 | AT-27 | Autor | `ExamOut` |
 | `GET /exams/{exam_id}/answers` | CU-06, CU-05 | AT-27 | Autor | `ExamAnswerOut[]` con citas |
 | `POST /feedback` | CU-10 | AT-28 | Todos | 201 `FeedbackOut`. 404 si la referencia a una respuesta o examen no existe o pertenece a otro usuario |
