@@ -70,9 +70,45 @@ export interface Page {
 
 export interface HistoryEntry {
   id: number
-  action: 'query' | 'generation'
+  action: 'query' | 'generation' | 'conversation'
   summary: string
+  conversation_id: number | null
   created_at: string
+}
+
+// Chat con memoria (CU-01): conversaciones y mensajes.
+export interface Conversation {
+  id: number
+  title: string
+  created_at: string
+  updated_at: string
+}
+
+export interface ChatMessage {
+  id: number
+  role: 'user' | 'assistant'
+  content: string
+  /** Solo en mensajes del asistente. */
+  status: 'answered' | 'no_evidence' | null
+  answer_id: number | null
+  citations: Citation[]
+  created_at: string
+}
+
+export interface ConversationDetail extends Conversation {
+  messages: ChatMessage[]
+}
+
+export interface Turn {
+  conversation: Conversation
+  messages: ChatMessage[]
+}
+
+export interface TurnRequest {
+  question: string
+  year?: number
+  subject?: string
+  topic?: string
 }
 
 // --- CU-03: corpus (AT-10, AT-23) ---

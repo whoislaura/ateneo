@@ -11,12 +11,12 @@ Responde preguntas, genera material de estudio y crea exámenes de práctica usa
 
 | | Función | Quién |
 |---|---|---|
-| 🔎 | **Consulta (CU-01):** pregunta en lenguaje natural, filtrable por año, asignatura y tema. Si el corpus no lo dice, responde que no lo encontró en lugar de inventar | Estudiante, Profesor |
+| 🔎 | **Consulta (CU-01):** chat con memoria: preguntas de seguimiento en un hilo, filtrable por año, asignatura y tema. Si el corpus no lo dice, responde que no lo encontró en lugar de inventar | Estudiante, Profesor |
 | 📑 | **Citas verificables (CU-05):** cada afirmación enlaza a la página y a la frase exacta del PDF, resaltada en el visor | Todos |
 | 📝 | **Generación (CU-02):** resumen, esquema, cuadro comparativo o diagrama en texto, con fuentes | Estudiante, Profesor |
 | 🎓 | **Exámenes (CU-06):** por asignatura, tema, cantidad y dificultad; las soluciones citan su fuente | Estudiante, Profesor |
 | 📚 | **Corpus (CU-03):** subir, reemplazar y retirar PDF; se reindexa automáticamente | Profesor, Administrador |
-| 🕘 | **Historial (CU-04):** consultas y generaciones propias | Estudiante, Profesor |
+| 🕘 | **Historial (CU-04):** consultas, conversaciones y generaciones propias | Estudiante, Profesor |
 | 💬 | **Feedback (CU-10):** valorar respuestas, reportar errores y sugerir mejoras | Todos |
 
 ## Cómo funciona

@@ -88,6 +88,12 @@ class HistoryAction(enum.StrEnum):
     DOCUMENT_UPLOAD = "document_upload"
     DOCUMENT_UPDATE = "document_update"
     DOCUMENT_RETIRE = "document_retire"
+    CONVERSATION = "conversation"  # migración 0005
+
+
+class MessageRole(enum.StrEnum):
+    USER = "user"
+    ASSISTANT = "assistant"
 
 
 class FeedbackKind(enum.StrEnum):
@@ -225,6 +231,40 @@ class Answer(Base):
     citations: Mapped[list["Citation"]] = relationship(order_by="Citation.position")
 
 
+class Conversation(Base):
+    """Hilo de chat de CU-01 con memoria: cada turno es un par de mensajes."""
+
+    __tablename__ = "conversations"
+    __table_args__ = (Index("ix_conversations_user_updated", "user_id", "updated_at"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    title: Mapped[str] = mapped_column(String(200))  # primera pregunta, recortada
+    created_at: Mapped[datetime] = created_at()
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    messages: Mapped[list["Message"]] = relationship(order_by="Message.id")
+
+
+class Message(Base):
+    """Mensaje del hilo. El del asistente apunta a su `Answer`, que guarda estado y citas."""
+
+    __tablename__ = "messages"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    conversation_id: Mapped[int] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), index=True
+    )
+    role: Mapped[MessageRole] = mapped_column(enum_type(MessageRole, "message_role"))
+    content: Mapped[str] = mapped_column(Text)
+    answer_id: Mapped[int | None] = mapped_column(
+        ForeignKey("answers.id", ondelete="SET NULL"), index=True
+    )
+    created_at: Mapped[datetime] = created_at()
+
+    answer: Mapped["Answer | None"] = relationship()
+
+
 class Exam(Base):
     __tablename__ = "exams"
     __table_args__ = (
@@ -308,6 +348,10 @@ class HistoryEntry(Base):
         ForeignKey("exams.id", ondelete="SET NULL"), index=True
     )
     document_id: Mapped[str | None] = mapped_column(ForeignKey("documents.id", ondelete="SET NULL"))
+    # Una conversación aparece una vez en el historial y se borra con ella.
+    conversation_id: Mapped[int | None] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), index=True
+    )
     created_at: Mapped[datetime] = created_at()
 
 

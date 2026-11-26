@@ -13,12 +13,15 @@ from app.models import (
     DocumentStatus,
     FeedbackKind,
     HistoryAction,
+    MessageRole,
     PageStatus,
     Role,
 )
 
 # Las columnas id son INTEGER de 32 bits: sin cota, Postgres daría 500 en vez de 404/422.
 Id = Annotated[int, Field(ge=1, le=2**31 - 1)]
+Limit = Annotated[int, Field(ge=1, le=100)]
+Offset = Annotated[int, Field(ge=0, le=1_000_000)]
 Year = Annotated[int, Field(ge=1, le=4)]
 Text = Annotated[str, Field(min_length=1, max_length=200)]
 Question = Annotated[str, Field(min_length=1, max_length=1000)]
@@ -190,7 +193,43 @@ class HistoryEntryOut(Contract):
     answer_id: int | None
     exam_id: int | None
     document_id: str | None
+    conversation_id: int | None
     created_at: datetime
+
+
+# CU-01 (chat con memoria)
+
+
+class TurnRequest(Classification):
+    """Pregunta de un turno; el hilo anterior lo pone el servidor."""
+
+    question: Question
+
+
+class MessageOut(Contract):
+    id: int
+    role: MessageRole
+    content: str
+    status: AnswerStatus | None = Field(description="Solo en mensajes del asistente.")
+    answer_id: int | None
+    citations: list[CitationOut]
+    created_at: datetime
+
+
+class ConversationOut(Contract):
+    id: int
+    title: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class ConversationDetail(ConversationOut):
+    messages: list[MessageOut]
+
+
+class TurnOut(Contract):
+    conversation: ConversationOut
+    messages: list[MessageOut] = Field(description="El mensaje del usuario y la respuesta.")
 
 
 # CU-06

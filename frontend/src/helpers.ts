@@ -19,3 +19,8 @@ export function citationRange(text: string, cita: Pick<Citation, 'start' | 'end'
   const start = text.indexOf(cita.quote)
   return cita.quote && start >= 0 ? { start, end: start + cita.quote.length } : null
 }
+
+/** Enter envía el mensaje; Shift+Enter (o una composición de IME en curso) inserta un salto de línea. */
+export function isSendKey(event: { key: string; shiftKey: boolean; isComposing: boolean }): boolean {
+  return event.key === 'Enter' && !event.shiftKey && !event.isComposing
+}

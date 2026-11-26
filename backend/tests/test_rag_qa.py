@@ -217,10 +217,12 @@ def test_claim_without_shared_terms_is_not_cited(index):  # noqa: F811
     assert "términos" in result["invalid_citations"][0]["reason"]
 
 
-def test_brief_mode_rejects_unmarked_figures(index):  # noqa: F811
+def test_brief_mode_drops_only_unmarked_figures(index):  # noqa: F811
     reply = "El Estado paga todo en 2030. La biblioteca ficticia conserva un catálogo [F1]."
     result = answer_question(index, "¿Qué conserva la biblioteca ficticia?", lambda s, u: reply)
-    assert result["status"] == "no_evidence"
+    assert result["status"] == "answered"
+    assert result["answer"] == "La biblioteca ficticia conserva un catálogo [1]."
+    assert [i["claim"] for i in result["invalid_citations"]] == ["El Estado paga todo en 2030."]
 
 
 @pytest.mark.parametrize("marks", ["[F1, F2]", "[F1; F2]"])

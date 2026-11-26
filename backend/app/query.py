@@ -27,6 +27,7 @@ def ask(
     subject: str | None = None,
     topic: str | None = None,
     mode: str = "breve",
+    history: list[tuple[str, str]] = (),
 ) -> dict:
     """Único punto de llamada al RAG. Devuelve, sin validar (lo hace `app.citations.validate`):
 
@@ -44,4 +45,5 @@ def ask(
         subject=subject,
         topic=topic,
         mode=mode,
+        history=history,
     )
