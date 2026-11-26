@@ -182,6 +182,7 @@ python infra/smoke.py https://ateneo-web.onrender.com
 ```
 
 - `infra/demo_corpus.py` genera los PDF con `app.rag.sample` (ReportLab, dependencia de desarrollo) y sube `muestra-a` y `muestra-b` con los metadatos de su JSON. Es idempotente: si el documento ya existe (409) lo sustituye con `PUT`, que reindexa y lo reactiva si estaba retirado. `--con-inyeccion` añade `muestra-c`, el documento con una instrucción incrustada para QA; no conviene en una demo.
+- Tras el cambio de normalización de ligaduras (ﬁ, ﬂ…) hay que reindexar la demo: volver a ejecutar `infra/demo_corpus.py` (el `PUT` reindexa) y, para cualquier otro PDF, reemplazarlo desde Corpus. Ver [ingestión](ingestion.md).
 - `infra/smoke.py` hace las comprobaciones técnicas de siempre (reintenta la salud durante unos minutos por el arranque en frío de Render) y, si las dos variables están definidas, inicia sesión, lee `/auth/me`, lista documentos, consulta «¿Dónde aparece azafrán?» exigiendo `answered` con una cita no vacía, genera un resumen, crea un examen y lee sus soluciones, busca la consulta en el historial, envía feedback y cierra la sesión. Imprime `OK`/`FAIL` por paso y sale con código distinto de cero al primer fallo. La comprobación de pgvector con `docker compose` solo se hace contra `localhost`/`127.0.0.1`; en remoto la cubre la consulta.
 - Cada ejecución deja en la cuenta una consulta, una generación, un examen y un feedback; usar una cuenta dedicada al smoke. Cinco logins fallidos seguidos bloquean la cuenta 15 minutos (429).
 

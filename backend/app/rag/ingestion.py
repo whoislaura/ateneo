@@ -67,8 +67,13 @@ class Document:
     chunks: list[Chunk]
 
 
+# Solo ligaduras tipográficas (U+FB00-FB06): NFKC también rompería "n.º", "½" y notas "14²".
+_LIGATURES = {c: unicodedata.normalize("NFKC", c) for c in map(chr, range(0xFB00, 0xFB07))}
+
+
 def normalize_text(text: str) -> str:
-    text = unicodedata.normalize("NFC", text).replace("\r\n", "\n").replace("\r", "\n")
+    text = unicodedata.normalize("NFC", text.translate(str.maketrans(_LIGATURES)))
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
     text = re.sub(r"[^\S\n]+", " ", text.replace("\x00", ""))
     text = "\n".join(line.strip() for line in text.split("\n"))
     return re.sub(r"\n{3,}", "\n\n", text).strip()
