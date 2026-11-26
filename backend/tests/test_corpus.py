@@ -370,6 +370,30 @@ def test_replace_reindexes_and_keeps_old_citations_as_copies(client, factory, pd
     assert page["version"] == report["version"]
 
 
+def test_replace_with_same_pdf_keeps_index_and_citations(client, factory, pdfs, monkeypatch):
+    version = upload(client, pdfs["muestra-a"]).json()["version"]
+    old = ask(client, OLD_QUESTION).json()
+    assert old["status"] == "answered", old
+    with factory() as db:
+        chunk_ids = set(db.scalars(select(Chunk.id)))
+
+    def no_embeddings(texts):
+        raise AssertionError("el mismo PDF no se vuelve a indexar")
+
+    monkeypatch.setitem(vector.EMBEDDERS, "fake", no_embeddings)
+    response = replace(client, pdfs["muestra-a"], title="Manual revisado", year="2")
+    assert response.status_code == 200, response.json()
+    assert response.json()["version"] == version and response.json()["chunks"] == len(chunk_ids)
+    with factory() as db:
+        assert set(db.scalars(select(Chunk.id))) == chunk_ids
+        [citation] = db.scalars(select(Citation)).all()
+        assert citation.chunk_id is not None  # la cita sigue enlazada al fragmento vigente
+        document = db.get(Document, "manual")
+        assert (document.title, document.year, document.version) == ("Manual revisado", 2, version)
+        actions = [e.action for e in db.scalars(select(HistoryEntry).order_by(HistoryEntry.id))]
+        assert actions[-1] == "document_update"
+
+
 def test_retire_excludes_from_search_and_citations(client, factory, pdfs):
     upload(client, pdfs["muestra-b"])
     assert ask(client, NEW_QUESTION).json()["status"] == "answered"
@@ -411,6 +435,8 @@ def test_postgres_reindex_end_to_end(monkeypatch, pdfs):
             assert upload(client, pdfs["muestra-a"], document_id="pg").status_code == 201
             assert ask(client, OLD_QUESTION).json()["status"] == "answered"
             assert replace(client, pdfs["muestra-b"], document_id="pg").status_code == 200
+            same = replace(client, pdfs["muestra-b"], document_id="pg")
+            assert same.status_code == 200, same.json()
             assert ask(client, OLD_QUESTION).json()["status"] == "no_evidence"
             assert ask(client, NEW_QUESTION).json()["status"] == "answered"
             student = client.headers_for[Role.STUDENT]
