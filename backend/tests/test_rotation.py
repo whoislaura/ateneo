@@ -1,6 +1,7 @@
+import http.client
 import io
 import json
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 
 import pytest
 
@@ -39,7 +40,7 @@ def test_rotates_on_429_5xx_and_timeout_and_never_logs_keys(monkeypatch, caplog)
 
     # La siguiente petición empieza por la última clave que funcionó.
     monkeypatch.setattr(
-        answer.urllib.request, "urlopen", fake_urlopen([TimeoutError(), "ok"], used)
+        answer.urllib.request, "urlopen", fake_urlopen([ConnectionResetError(), "ok"], used)
     )
     assert answer.PROVIDERS["openai"]("s", "u") == "respuesta"
     assert used[3:] == ["clave-c", "clave-a"]
@@ -65,7 +66,7 @@ def test_single_key_retries_once(monkeypatch):
 
 def test_client_errors_are_not_retried(monkeypatch):
     used = []
-    monkeypatch.setattr(answer.urllib.request, "urlopen", fake_urlopen([401], used))
+    monkeypatch.setattr(answer.urllib.request, "urlopen", fake_urlopen([400], used))
     with pytest.raises(HTTPError):
         answer.PROVIDERS["openai"]("s", "u")
     assert used == ["clave-a"]
@@ -93,3 +94,60 @@ def test_embedder_rotates_too(monkeypatch):
     monkeypatch.setattr(vector.urllib.request, "urlopen", urlopen)
     assert vector.EMBEDDERS["openai"](["x"]) == [[1.0, 0.0]]
     assert used == ["Bearer e1", "Bearer e2"]
+
+
+@pytest.mark.parametrize("code", [401, 402, 403])
+def test_r2_auth_and_payment_errors_rotate(monkeypatch, code):
+    used = []
+    monkeypatch.setattr(answer.urllib.request, "urlopen", fake_urlopen([code, "ok"], used))
+    assert answer.PROVIDERS["openai"]("s", "u") == "respuesta"
+    assert used == ["clave-a", "clave-b"]
+
+
+@pytest.mark.parametrize("exc", [ConnectionResetError(), http.client.RemoteDisconnected("x")])
+def test_r3_connection_errors_rotate_and_end_as_oserror(monkeypatch, exc):
+    used = []
+    monkeypatch.setattr(answer.urllib.request, "urlopen", fake_urlopen([exc, "ok"], used))
+    assert answer.PROVIDERS["openai"]("s", "u") == "respuesta"
+    monkeypatch.setattr(rotation, "_next", {})
+    used.clear()
+    monkeypatch.setattr(answer.urllib.request, "urlopen", fake_urlopen([exc] * 3, used))
+    with pytest.raises(OSError):  # la API captura OSError/ValueError -> 503
+        answer.PROVIDERS["openai"]("s", "u")
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        {"error": {"message": "x"}},
+        {},
+        {"choices": []},
+        {"choices": [{"message": {"content": None}}]},
+    ],
+)
+def test_r3_malformed_200_is_value_error(monkeypatch, reply):
+    monkeypatch.setattr(
+        answer.urllib.request, "urlopen", lambda r, timeout: io.BytesIO(json.dumps(reply).encode())
+    )
+    with pytest.raises(ValueError, match="Respuesta inválida"):
+        answer.PROVIDERS["openai"]("s", "u")
+
+
+def test_r3_malformed_embedding_is_value_error(monkeypatch):
+    monkeypatch.setenv("ATENEO_EMBED_API_KEYS", "e1")
+    monkeypatch.setenv("ATENEO_EMBED_MODEL", "modelo")
+    monkeypatch.setenv("ATENEO_EMBED_DIM", "2")
+    monkeypatch.setattr(
+        vector.urllib.request, "urlopen", lambda r, timeout: io.BytesIO(b'{"error": "x"}')
+    )
+    with pytest.raises(ValueError, match="Respuesta inválida"):
+        vector.EMBEDDERS["openai"](["x"])
+
+
+@pytest.mark.parametrize("exc", [TimeoutError(), URLError(TimeoutError())])
+def test_r6_no_retry_after_timeout(monkeypatch, exc):
+    used = []
+    monkeypatch.setattr(answer.urllib.request, "urlopen", fake_urlopen([exc, "ok"], used))
+    with pytest.raises(OSError):
+        answer.PROVIDERS["openai"]("s", "u")
+    assert used == ["clave-a"]

@@ -139,7 +139,14 @@ def openai_compatible_provider(system: str, user: str, key: str | None = None) -
     # Las respuestas desarrolladas tardan más; nginx corta a los 120 s (frontend/nginx.conf).
     timeout = env_int("ATENEO_LLM_TIMEOUT", 60, 1, 600)
     with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.load(response)["choices"][0]["message"]["content"]
+        data = json.load(response)
+    try:
+        content = data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError):
+        content = None
+    if not isinstance(content, str):
+        raise ValueError("Respuesta inválida del proveedor")
+    return content
 
 
 def env_int(name: str, default: int, low: int, high: int) -> int:
