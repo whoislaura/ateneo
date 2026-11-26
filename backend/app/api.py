@@ -5,6 +5,7 @@ Los permisos por rol (AT-08) se aplican: 401 sin sesión y 403 sin rol.
 
 import logging
 import math
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, status
@@ -29,18 +30,24 @@ from app.models import (
     AnswerKind,
     AnswerStatus,
     Citation,
+    Conversation,
     Document,
     Exam,
     ExamQuestion,
     Feedback,
     HistoryAction,
     HistoryEntry,
+    Message,
+    MessageRole,
     Role,
     User,
 )
+from app.rag.answer import HISTORY_MESSAGES
 from app.schemas import (
     AnswerOut,
     CitationOut,
+    ConversationDetail,
+    ConversationOut,
     DocumentOut,
     DocumentReplace,
     DocumentUpload,
@@ -54,10 +61,15 @@ from app.schemas import (
     HistoryEntryOut,
     Id,
     IngestionReport,
+    Limit,
     LoginRequest,
+    MessageOut,
+    Offset,
     PageOut,
     QueryRequest,
     TokenResponse,
+    TurnOut,
+    TurnRequest,
     UserOut,
     Year,
 )
@@ -251,6 +263,212 @@ def create_generation(
     return answer_out(answer)
 
 
+# CU-01: chat con memoria
+
+
+def message_out(message: Message) -> MessageOut:
+    answer = message.answer
+    return MessageOut(
+        id=message.id,
+        role=message.role,
+        content=message.content,
+        status=answer.status if answer else None,
+        answer_id=message.answer_id,
+        citations=[citation_out(c) for c in answer.citations] if answer else [],
+        created_at=message.created_at,
+    )
+
+
+def owned_conversation(db: Session, conversation_id: int, user_id: int) -> Conversation:
+    conversation = db.get(Conversation, conversation_id)
+    if conversation is None or conversation.user_id != user_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversación no encontrada.")
+    return conversation
+
+
+def run_turn(
+    db: Session, user_id: int, conversation: Conversation | None, body: TurnRequest
+) -> TurnOut:
+    """Un turno: reformula con el hilo, responde con citas y guarda el par de mensajes."""
+    previous = []
+    if conversation is not None:
+        recent = db.scalars(
+            select(Message)
+            .where(Message.conversation_id == conversation.id)
+            .order_by(Message.id.desc())
+            .limit(HISTORY_MESSAGES)
+        )
+        previous = [(m.role.value, m.content) for m in reversed(list(recent))]
+    conversation_id = conversation.id if conversation else None
+    filters = body.model_dump(exclude={"question"})
+    try:  # el rollback previo a la llamada al LLM expira `conversation`
+        result = query.ask(db, body.question, mode="chat", history=previous, **filters)
+    except (ValueError, OSError) as exc:
+        raise ai_unavailable(exc, "El servicio de respuestas no está disponible.") from exc
+    answer_status, content, valid = citations.validate(db, result)
+    now = datetime.now(UTC)
+    if conversation_id is None:
+        title = " ".join(body.question.split())
+        conversation = Conversation(
+            user_id=user_id,
+            title=title if len(title) <= 80 else title[:79] + "…",
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(conversation)
+        db.flush()
+        db.add(
+            HistoryEntry(
+                user_id=user_id,
+                action=HistoryAction.CONVERSATION,
+                summary=conversation.title,
+                conversation_id=conversation.id,
+            )
+        )
+    else:
+        conversation = owned_conversation(db, conversation_id, user_id)
+        conversation.updated_at = now
+    answer = Answer(
+        user_id=user_id,
+        kind=AnswerKind.QUERY,
+        status=answer_status,
+        question=body.question,
+        content=content,
+        citations=valid,
+        **filters,
+    )
+    db.add(answer)
+    db.flush()
+    asked = Message(conversation_id=conversation.id, role=MessageRole.USER, content=body.question)
+    reply = Message(
+        conversation_id=conversation.id,
+        role=MessageRole.ASSISTANT,
+        content=content,
+        answer_id=answer.id,
+    )
+    db.add_all([asked, reply])
+    db.commit()
+    return TurnOut(
+        conversation=ConversationOut.model_validate(conversation, from_attributes=True),
+        messages=[message_out(asked), message_out(reply)],
+    )
+
+
+@router.post(
+    "/conversations",
+    response_model=TurnOut,
+    status_code=201,
+    responses={503: {"model": ErrorResponse}},
+    dependencies=STUDY,
+    tags=["conversaciones"],
+)
+def create_conversation(
+    body: TurnRequest,
+    user: Annotated[User, Depends(current_user)],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Estudiante, Profesor. Abre una conversación con su primera pregunta (título derivado)."""
+    return run_turn(db, user.id, None, body)
+
+
+@router.post(
+    "/conversations/{conversation_id}/messages",
+    response_model=TurnOut,
+    status_code=201,
+    responses=NOT_FOUND | {503: {"model": ErrorResponse}},
+    dependencies=STUDY,
+    tags=["conversaciones"],
+)
+def send_message(
+    conversation_id: Id,
+    body: TurnRequest,
+    user: Annotated[User, Depends(current_user)],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Propietario. Pregunta de seguimiento: usa los últimos turnos como contexto."""
+    user_id = user.id
+    conversation = owned_conversation(db, conversation_id, user_id)
+    return run_turn(db, user_id, conversation, body)
+
+
+@router.get(
+    "/conversations",
+    response_model=list[ConversationOut],
+    dependencies=STUDY,
+    tags=["conversaciones"],
+)
+def list_conversations(
+    user: Annotated[User, Depends(current_user)],
+    db: Annotated[Session, Depends(get_db)],
+    limit: Annotated[Limit, Query()] = 20,
+    offset: Annotated[Offset, Query()] = 0,
+) -> list[ConversationOut]:
+    """Propietario. Conversaciones propias, la de actividad más reciente primero."""
+    rows = db.scalars(
+        select(Conversation)
+        .where(Conversation.user_id == user.id)
+        .order_by(Conversation.updated_at.desc(), Conversation.id.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    return [ConversationOut.model_validate(row, from_attributes=True) for row in rows]
+
+
+@router.get(
+    "/conversations/{conversation_id}",
+    response_model=ConversationDetail,
+    responses=NOT_FOUND,
+    dependencies=STUDY,
+    tags=["conversaciones"],
+)
+def get_conversation(
+    conversation_id: Id,
+    user: Annotated[User, Depends(current_user)],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Propietario. El hilo completo con las citas de cada respuesta."""
+    conversation = owned_conversation(db, conversation_id, user.id)
+    return ConversationDetail(
+        **ConversationOut.model_validate(conversation, from_attributes=True).model_dump(),
+        messages=[message_out(m) for m in conversation.messages],
+    )
+
+
+def delete_conversations(db: Session, conversation_ids: list[int]) -> None:
+    """Borra hilos con sus mensajes, respuestas, citas y entradas de historial."""
+    if not conversation_ids:
+        return
+    answer_ids = list(
+        db.scalars(
+            select(Message.answer_id).where(
+                Message.conversation_id.in_(conversation_ids), Message.answer_id.is_not(None)
+            )
+        )
+    )
+    db.execute(delete(HistoryEntry).where(HistoryEntry.conversation_id.in_(conversation_ids)))
+    db.execute(delete(Message).where(Message.conversation_id.in_(conversation_ids)))
+    db.execute(delete(Conversation).where(Conversation.id.in_(conversation_ids)))
+    delete_answers(db, answer_ids)
+
+
+@router.delete(
+    "/conversations/{conversation_id}",
+    status_code=204,
+    responses=NOT_FOUND,
+    dependencies=STUDY,
+    tags=["conversaciones"],
+)
+def delete_conversation(
+    conversation_id: Id,
+    user: Annotated[User, Depends(current_user)],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Propietario. Borra la conversación, sus respuestas y su entrada de historial."""
+    owned_conversation(db, conversation_id, user.id)
+    delete_conversations(db, [conversation_id])
+    db.commit()
+
+
 @router.get(
     "/answers/{answer_id}", response_model=AnswerOut, responses=NOT_FOUND, tags=["consulta"]
 )
@@ -379,21 +597,24 @@ def get_page(
 # CU-04
 
 
+STUDY_ACTIONS = (HistoryAction.QUERY, HistoryAction.GENERATION, HistoryAction.CONVERSATION)
+
+
 @router.get(
     "/history", response_model=list[HistoryEntryOut], dependencies=STUDY, tags=["historial"]
 )
 def list_history(
     user: Annotated[User, Depends(current_user)],
     db: Annotated[Session, Depends(get_db)],
-    limit: Annotated[int, Query(ge=1, le=100)] = 20,
-    offset: Annotated[int, Query(ge=0, le=1_000_000)] = 0,
+    limit: Annotated[Limit, Query()] = 20,
+    offset: Annotated[Offset, Query()] = 0,
 ) -> list[HistoryEntryOut]:
-    """Estudiante, Profesor. Consultas y generaciones propias, más recientes primero."""
+    """Estudiante, Profesor. Consultas, conversaciones y generaciones propias, recientes primero."""
     statement = (
         select(HistoryEntry)
         .where(
             HistoryEntry.user_id == user.id,
-            HistoryEntry.action.in_((HistoryAction.QUERY, HistoryAction.GENERATION)),
+            HistoryEntry.action.in_(STUDY_ACTIONS),
         )
         .order_by(HistoryEntry.created_at.desc(), HistoryEntry.id.desc())
         .limit(limit)
@@ -433,11 +654,14 @@ def delete_history_entry(
     user: Annotated[User, Depends(current_user)],
     db: Annotated[Session, Depends(get_db)],
 ):
-    """Autor. Borra una consulta o generación y su respuesta guardada."""
-    entry = deletable_history(db, entry_id, user, (HistoryAction.QUERY, HistoryAction.GENERATION))
-    if entry.answer_id is not None:
-        delete_answers(db, [entry.answer_id])
-    db.delete(entry)
+    """Autor. Borra una consulta, generación o conversación y sus respuestas guardadas."""
+    entry = deletable_history(db, entry_id, user, STUDY_ACTIONS)
+    if entry.conversation_id is not None:
+        delete_conversations(db, [entry.conversation_id])
+    else:
+        if entry.answer_id is not None:
+            delete_answers(db, [entry.answer_id])
+        db.delete(entry)
     db.commit()
 
 
@@ -446,8 +670,11 @@ def clear_history(
     user: Annotated[User, Depends(current_user)],
     db: Annotated[Session, Depends(get_db)],
 ):
-    """Autor. Borra todas sus consultas y generaciones con sus respuestas."""
-    study = (HistoryAction.QUERY, HistoryAction.GENERATION)
+    """Autor. Borra todas sus consultas, conversaciones y generaciones con sus respuestas."""
+    study = STUDY_ACTIONS
+    delete_conversations(
+        db, list(db.scalars(select(Conversation.id).where(Conversation.user_id == user.id)))
+    )
     answer_ids = list(
         db.scalars(
             select(HistoryEntry.answer_id).where(

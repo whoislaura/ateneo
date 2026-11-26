@@ -12,6 +12,10 @@ Desde AT-15/AT-16 (issues #15 y #16) el flujo de CU-01 devuelve citas con la for
 4. **Cita exacta.** Cada marca se resuelve al fragmento recuperado y, dentro de él, a la oración con más términos de la afirmación que la precede (el fragmento entero si ninguna coincide). Como el texto del fragmento es `página.text[start:end]`, los offsets de la oración se trasladan a la página y `quote` es exactamente ese texto.
 5. **Verificación (`app.rag.citations`, CU-05).** Cada cita se comprueba contra la fuente vigente: el `chunk_id` debe existir en la versión actual de un documento no retirado, corresponder al mismo documento, versión y página, quedar dentro del fragmento y cumplir `quote == página.text[start:end]`. Cualquier cita inválida o marca de un fragmento no entregado se informa en `invalid_citations` y la respuesta completa pasa a `no_evidence` (en modo desarrollada solo se eliminan sus oraciones). Si todas son válidas, se renumeran `[1]`, `[2]`… por orden de aparición. Una cita repetida conserva su número y `[n]` es `citations[n - 1]`.
 
+## Modo chat
+
+`mode="chat"` (solo el chat de `/conversations`, ver el [contrato](api-contract.md#chat-con-memoria-cu-01)) recupera como `desarrollada` y usa `CHAT_PROMPT`: respuesta directa en párrafos y listas, sin títulos, de 150 a 600 palabras, con las mismas reglas y la misma política de citas parcial. `answer_question(..., history=[(rol, texto)])` reformula primero la pregunta con `REWRITE_PROMPT` (hasta 200 tokens y `ATENEO_REWRITE_TIMEOUT` s, 15 por defecto; si falla, usa la pregunta anterior del usuario más la nueva) y añade al prompt de respuesta una «Conversación previa» que no puede respaldar afirmaciones. La conexión de BD se libera antes de cada llamada al proveedor.
+
 ## Modo desarrollada
 
 `answer_question(..., mode="desarrollada")` (en la API, `QueryRequest.mode`) da una respuesta más completa con **la misma única llamada al modelo**: solo cambian la recuperación, el prompt y la política de citas. `mode="breve"` (por defecto) no cambia nada de lo anterior.

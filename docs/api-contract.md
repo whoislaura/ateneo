@@ -57,6 +57,11 @@ Cada usuario tiene un único rol. Sin sesión válida: 401. Sin permiso: 403. Re
 | `GET /auth/me` | CU-00 | AT-08 | Todos | `UserOut` |
 | `POST /queries` | CU-01, CU-05 | AT-09, AT-12 | Estudiante, Profesor | 201 `AnswerOut` |
 | `POST /generations` | CU-02, CU-05 | AT-12 | Estudiante, Profesor | 201 `AnswerOut` |
+| `POST /conversations` | CU-01, CU-05 | AT-09 | Estudiante, Profesor | 201 `TurnOut`; abre una conversación con su primera pregunta (título derivado de ella) |
+| `POST /conversations/{conversation_id}/messages` | CU-01, CU-05 | AT-09 | Propietario | 201 `TurnOut`; pregunta de seguimiento con memoria. 404 si es de otro usuario |
+| `GET /conversations` | CU-04 | AT-11 | Estudiante, Profesor | `ConversationOut[]` propias, de actividad más reciente a más antigua. `limit` de 1 a 100 (20 por defecto), `offset` desde 0 |
+| `GET /conversations/{conversation_id}` | CU-04 | AT-11 | Propietario | `ConversationDetail`: hilo completo con las citas de cada respuesta. 404 si es de otro |
+| `DELETE /conversations/{conversation_id}` | CU-04 | AT-11 | Propietario | 204; borra mensajes, respuestas, citas y su entrada de historial |
 | `GET /answers/{answer_id}` | CU-04 | AT-11 | Autor | `AnswerOut` |
 | `GET /documents` | CU-03 | AT-10 | Todos | `DocumentOut[]`; filtros `year`, `subject`, `topic`, `include_retired` |
 | `POST /documents` | CU-03 | AT-10 | Profesor, Administrador | 201 `IngestionReport`; 409 si el identificador existe |
@@ -64,9 +69,9 @@ Cada usuario tiene un único rol. Sin sesión válida: 401. Sin permiso: 403. Re
 | `PUT /documents/{document_id}` | CU-03 | AT-10 | Profesor, Administrador | `IngestionReport` tras reindexar |
 | `DELETE /documents/{document_id}` | CU-03 | AT-10 | Profesor, Administrador | 204; retira, no borra |
 | `GET /documents/{document_id}/pages/{page_number}` | CU-05 | AT-12 | Todos | `PageOut` para verificar una cita |
-| `GET /history` | CU-04 | AT-11 | Estudiante, Profesor | `HistoryEntryOut[]` de consultas y generaciones propias, más recientes primero. `limit` de 1 a 100 (20 por defecto), `offset` desde 0 |
-| `DELETE /history/{entry_id}` | CU-04 | AT-11 | Autor | 204; borra la consulta o generación y su respuesta guardada |
-| `DELETE /history` | CU-04 | AT-11 | Autor | 204; borra todas sus consultas y generaciones con sus respuestas |
+| `GET /history` | CU-04 | AT-11 | Estudiante, Profesor | `HistoryEntryOut[]` de consultas, conversaciones (`action: conversation`, con `conversation_id`) y generaciones propias, más recientes primero. `limit` de 1 a 100 (20 por defecto), `offset` desde 0 |
+| `DELETE /history/{entry_id}` | CU-04 | AT-11 | Autor | 204; borra la consulta, generación o conversación (con sus mensajes) y sus respuestas guardadas |
+| `DELETE /history` | CU-04 | AT-11 | Autor | 204; borra todas sus consultas, conversaciones y generaciones con sus respuestas |
 | `POST /exams` | CU-06 | AT-27 | Estudiante, Profesor | 201 `ExamOut` sin respuestas. 422 si el corpus no permite generar la cantidad solicitada |
 | `GET /exams` | CU-06 | AT-27 | Estudiante, Profesor | `ExamOut[]` propios |
 | `GET /exams/{exam_id}` | CU-06 | AT-27 | Autor | `ExamOut` |
@@ -131,6 +136,19 @@ Toda respuesta de CU-01 y CU-02 es un `AnswerOut` con `status`:
 ```json
 {"question": "¿Qué requisitos tiene la usucapión?", "year": 2, "mode": "desarrollada"}
 ```
+
+### Chat con memoria (CU-01)
+
+La pantalla Consulta es un chat. `POST /conversations` y `POST /conversations/{id}/messages` reciben `question` (1–1000 caracteres) y los filtros opcionales `year`, `subject`, `topic` (los filtros valen por turno) y devuelven un `TurnOut`: `conversation` (`ConversationOut`: `id`, `title`, `created_at`, `updated_at`) y `messages` (el mensaje del usuario y el del asistente). Cada `MessageOut` lleva `role` (`user`/`assistant`), `content`, `status` (`answered`/`no_evidence`, solo en el asistente), `answer_id` y `citations` (mismas `CitationOut` y renumeración `[n]` que `AnswerOut`; se abren con el visor de `GET /documents/{id}/pages/{n}`).
+
+- Siempre responde en modo `chat`: recuperación amplia (la de `desarrollada`), prosa conversacional de 150 a 600 palabras restringida al corpus y con citas. No hay campo `mode`.
+- Memoria: con los últimos 6 mensajes del hilo (300 caracteres cada uno, sin marcas `[n]`), la pregunta de seguimiento se reformula como pregunta autónoma antes de recuperar fragmentos y esos turnos acompañan al prompt de respuesta como contexto, no como fuente. Con `ATENEO_LLM_PROVIDER=fake` la reformulación es determinista: pregunta anterior del usuario + pregunta nueva. Si falla la llamada de reformulación se usa esa misma concatenación.
+- Un turno es atómico: ante un fallo del proveedor (503) no se guarda ni el mensaje del usuario ni la conversación; el cliente puede reintentar.
+- Cada mensaje del asistente se guarda como un `Answer` (`kind = query`) con sus `Citation`, así que `POST /feedback` con su `answer_id` y el panel de administración funcionan igual.
+- Solo el propietario ve, amplía o borra una conversación: de otro usuario responde 404. Admin recibe 403 como en el resto de rutas de estudio.
+- La conversación aparece una vez en `GET /history` y se borra con `DELETE /history/{entry_id}` o `DELETE /history`.
+
+`POST /queries` no cambia y sigue sin memoria.
 
 El proveedor se elige por entorno: `ATENEO_LLM_PROVIDER` (`fake` por defecto, `openai`) y `ATENEO_EMBEDDER` (`fake` por defecto, `openai`; debe ser el mismo que indexó el corpus). Las variables de cada proveedor están en el [prototipo RAG](rag-prototype.md). Pruebas y CI usan siempre `fake`. Un fallo del proveedor devuelve 503 sin guardar nada.
 
@@ -217,6 +235,7 @@ PostgreSQL 17 con pgvector. Las tablas se crean exclusivamente mediante Alembic.
 | `chunks` | Fragmento de la ingestión: `id` (`chunk_id` determinista), documento, versión, página, `start_offset`/`end_offset`, texto y `embedding` (pgvector, nulo hasta AT-14). |
 | `answers` | Resultado de consulta o generación: autor, `kind` (`query`/`summary`/`outline`/`table`/`diagram`), `status`, pregunta, filtros y contenido. |
 | `citations` | Copia verificable de cada cita, ligada a una respuesta o a una pregunta de examen (exactamente una). |
+| `conversations`, `messages` | Chat con memoria (migración 0005): conversación con propietario, título y fechas; mensaje `user`/`assistant` con contenido y, el del asistente, enlace a su `answers` (estado y citas). La entrada de historial `conversation` se enlaza con `history_entries.conversation_id`. |
 | `exams`, `exam_questions` | Configuración del examen y preguntas ordenadas con su respuesta. |
 | `history_entries` | CU-04: fecha, autor, `action` y resumen, con enlace opcional a respuesta, examen o documento. |
 | `feedback` | Valoración (1–5), error o sugerencia, con autor y vínculo opcional a respuesta o examen. |
