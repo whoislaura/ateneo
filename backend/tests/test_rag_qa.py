@@ -208,3 +208,24 @@ def test_exam_quantity_is_exact_or_rejected(exam_db):
         other = ExamRequest(year=2, subject="Civil", question_count=1, difficulty="easy")
         with pytest.raises(HTTPException):
             make_questions(db, other)
+
+
+def test_claim_without_shared_terms_is_not_cited(index):  # noqa: F811
+    reply = "Los hijos heredan el patrimonio del causante [F1]."
+    result = answer_question(index, "¿Qué conserva la biblioteca ficticia?", lambda s, u: reply)
+    assert result["status"] == "no_evidence"
+    assert "términos" in result["invalid_citations"][0]["reason"]
+
+
+def test_brief_mode_rejects_unmarked_figures(index):  # noqa: F811
+    reply = "El Estado paga todo en 2030. La biblioteca ficticia conserva un catálogo [F1]."
+    result = answer_question(index, "¿Qué conserva la biblioteca ficticia?", lambda s, u: reply)
+    assert result["status"] == "no_evidence"
+
+
+@pytest.mark.parametrize("marks", ["[F1, F2]", "[F1; F2]"])
+def test_malformed_markers_are_invalid(index, marks):  # noqa: F811
+    reply = f"La biblioteca ficticia conserva un catálogo {marks}."
+    result = answer_question(index, "¿Qué conserva la biblioteca ficticia?", lambda s, u: reply)
+    assert result["status"] == "no_evidence"
+    assert "mal formada" in result["invalid_citations"][0]["reason"]
