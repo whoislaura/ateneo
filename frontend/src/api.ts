@@ -219,6 +219,28 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   throw new ApiError(response.status, code, message)
 }
 
+/** Descarga un PDF protegido (necesita el token, por eso no es un enlace) y lo guarda con `filename`. */
+export async function downloadPdf(path: string, filename: string): Promise<void> {
+  const headers = new Headers()
+  const sentToken = token
+  if (sentToken) headers.set('Authorization', `Bearer ${sentToken}`)
+  const response = await fetch(`/api/v1${path}`, { headers })
+  if (!response.ok) {
+    if (response.status === 401 && sentToken && sentToken === token) {
+      setToken(null)
+      onUnauthorized()
+    }
+    if (response.status === 403 && sentToken) onForbidden()
+    throw new ApiError(response.status, 'http_error', 'No se pudo descargar el PDF.')
+  }
+  const url = URL.createObjectURL(await response.blob())
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
 /** Mensaje para el usuario según el error de `api()` (compartido por las pantallas). */
 export function errorMessage(err: unknown): string {
   if (!(err instanceof ApiError)) return 'No se pudo conectar con el servidor. Comprueba la conexión e inténtalo de nuevo.'
@@ -253,6 +275,27 @@ export interface GenerationRequest {
 
 export type Difficulty = 'easy' | 'medium' | 'hard'
 
+export type QuestionKind = 'multiple_choice' | 'true_false' | 'development' | 'case' | 'completion'
+/** Tipos que el profesor puede elegir al generar; «completion» solo existe en exámenes antiguos. */
+export type ExamKind = Exclude<QuestionKind, 'completion'>
+
+export const questionKindLabels: Record<QuestionKind, string> = {
+  multiple_choice: 'Test',
+  true_false: 'Verdadero o falso',
+  development: 'Desarrollo',
+  case: 'Caso práctico',
+  completion: 'Completar',
+}
+
+export interface ExamQuestion {
+  id: number
+  position: number
+  kind: QuestionKind
+  statement: string
+  options: string[] | null
+  points: number
+}
+
 export interface Exam {
   id: number
   year: number
@@ -260,7 +303,9 @@ export interface Exam {
   topic: string | null
   difficulty: Difficulty
   question_count: number
-  questions: { id: number; position: number; statement: string }[]
+  duration_minutes: number
+  total_points: number
+  questions: ExamQuestion[]
   created_at: string
 }
 
@@ -268,6 +313,7 @@ export interface ExamAnswer {
   question_id: number
   position: number
   answer: string
+  criteria: string | null
   citations: Citation[]
 }
 

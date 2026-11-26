@@ -26,7 +26,7 @@ La primera búsqueda devuelve la página física 1 de `muestra-a`. La segunda li
 1. Arranca un entorno de pruebas según [Despliegue](deployment.md). Usa los proveedores `fake` de la configuración de ejemplo y crea cuentas de profesor y estudiante con `python -m app.auth create-user` dentro de la API.
 2. Entra como profesor y sube los dos PDFs anteriores desde **Corpus**. Usa las clasificaciones de sus archivos JSON. La muestra A debe indicar indexación parcial por su página vacía.
 3. Entra como estudiante. En **Consulta**, pregunta «¿Dónde se menciona azafrán?» y abre la cita de la primera página. En **Generación**, pide un resumen sobre la biblioteca. Prueba también una pregunta fuera del corpus, como «¿Cuál es la capital de Francia?».
-4. En **Examen**, genera dos preguntas para 4.º año, «Asignatura ficticia B», tema «Evaluación» y dificultad media. Completa los fragmentos, muestra las soluciones y comprueba la página citada. Envía una valoración desde el enlace del examen.
+4. En **Examen**, genera dos preguntas para 4.º año, «Asignatura ficticia B», tema «Evaluación» y dificultad media. Responde, muestra las soluciones y comprueba la página citada. Envía una valoración desde el enlace del examen.
 5. Inicia sesión como profesor y verifica que **Examen** muestra solo sus propios ejercicios. Retira la muestra B y comprueba que un examen nuevo con esa clasificación devuelve falta de material, mientras las soluciones de un examen anterior conservan sus citas.
 
 Esta demostración comprueba el flujo técnico con material sintético. Para la aceptación académica se necesita el corpus oficial y la revisión del cliente.

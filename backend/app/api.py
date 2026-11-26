@@ -8,11 +8,11 @@ import math
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, Response, status
 from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session, selectinload
 
-from app import citations, corpus, exams, generation, query
+from app import citations, corpus, exam_pdf, exams, generation, query
 from app.auth import (
     TOKEN_TTL,
     authenticate,
@@ -696,20 +696,38 @@ def clear_history(
 
 
 @router.post(
-    "/exams", response_model=ExamOut, status_code=201, dependencies=STUDY, tags=["examenes"]
+    "/exams",
+    response_model=ExamOut,
+    status_code=201,
+    responses={503: {"model": ErrorResponse}},
+    dependencies=STUDY,
+    tags=["examenes"],
 )
 def create_exam(
     body: ExamRequest,
     user: Annotated[User, Depends(current_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> ExamOut:
-    """Estudiante, Profesor. Genera el examen; las respuestas no se incluyen."""
-    exam = Exam(user_id=user.id, questions=exams.make_questions(db, body), **body.model_dump())
+    """Estudiante, Profesor. Genera el examen mixto con IA; las respuestas no se incluyen."""
+    user_id = user.id  # el rollback previo a la llamada al LLM expira `user`
+    try:
+        questions, minutes = exams.make_questions(db, body)
+    except (ValueError, OSError) as exc:
+        raise ai_unavailable(
+            exc, "El servicio de generación de exámenes no está disponible."
+        ) from exc
+    exam = Exam(
+        user_id=user_id,
+        questions=questions,
+        duration_minutes=minutes,
+        question_count=len(questions),
+        **body.model_dump(exclude={"types", "question_count"}),
+    )
     db.add(exam)
     db.flush()
     db.add(
         HistoryEntry(
-            user_id=user.id, action=HistoryAction.EXAM, summary=exam.subject, exam_id=exam.id
+            user_id=user_id, action=HistoryAction.EXAM, summary=exam.subject, exam_id=exam.id
         )
     )
     db.commit()
@@ -783,10 +801,65 @@ def get_exam_answers(
             question_id=question.id,
             position=question.position,
             answer=question.answer,
+            criteria=question.criteria,
             citations=[citation_out(citation) for citation in question.citations],
         )
         for question in questions
     ]
+
+
+PDF = {200: {"content": {"application/pdf": {}}}, **NOT_FOUND}
+
+
+def pdf_response(content: bytes, filename: str) -> Response:
+    return Response(
+        content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def exam_with_citations(db: Session, exam_id: int, user: User) -> Exam:
+    owned_exam(db, exam_id, user)
+    return db.scalars(
+        select(Exam)
+        .where(Exam.id == exam_id)
+        .options(selectinload(Exam.questions).selectinload(ExamQuestion.citations))
+    ).one()
+
+
+@router.get(
+    "/exams/{exam_id}/pdf",
+    response_class=Response,
+    responses=PDF,
+    dependencies=STUDY,
+    tags=["examenes"],
+)
+def get_exam_pdf(
+    exam_id: Id,
+    user: Annotated[User, Depends(current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> Response:
+    """Autor del examen. PDF para el estudiante, sin soluciones."""
+    exam = exam_with_citations(db, exam_id, user)
+    return pdf_response(exam_pdf.exam_pdf(exam), f"examen-{exam.id}.pdf")
+
+
+@router.get(
+    "/exams/{exam_id}/answers/pdf",
+    response_class=Response,
+    responses=PDF,
+    dependencies=STUDY,
+    tags=["examenes"],
+)
+def get_exam_key_pdf(
+    exam_id: Id,
+    user: Annotated[User, Depends(current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> Response:
+    """Autor del examen. Clave de corrección con soluciones, puntuación y citas."""
+    exam = exam_with_citations(db, exam_id, user)
+    return pdf_response(exam_pdf.key_pdf(exam), f"clave-examen-{exam.id}.pdf")
 
 
 # CU-10

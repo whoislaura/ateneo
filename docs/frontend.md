@@ -197,16 +197,18 @@ Actividad reciente
 
 ### Examen (CU-06)
 
-Permite generar y volver a abrir exámenes propios. Los enunciados se muestran primero y el botón «Ver respuestas» carga las soluciones con el texto exacto de la cita, el documento y la página.
+Permite generar y volver a abrir exámenes propios. El examen es mixto (test, verdadero o falso, desarrollo y caso práctico) y se pueden marcar los tipos que se quieren; generarlo tarda unos segundos porque lo redacta la IA. Los enunciados se muestran primero y el botón «Ver respuestas» carga las soluciones y el criterio de corrección con el texto exacto de la cita, el documento y la página. «Descargar examen (PDF)» y «Descargar clave (PDF)» bajan el examen para el estudiante y la clave del profesor.
 
 ```
 Examen
 Año [▾]  Asignatura [▾]  Tema [▾]
 Cantidad [2]  Dificultad [Media ▾]
+Tipos [ ] Test [ ] V/F [ ] Desarrollo [ ] Caso
 [Generar examen]
-+ 1. Enunciado ---------------+
-| Completa el fragmento […]  |
-| Respuesta [______________] |
+[Descargar examen (PDF)] [Descargar clave (PDF)]
++ 1. Test · 1 pt -------------+
+| Enunciado                   |
+| ( ) A) …  ( ) B) …          |
 +-----------------------------+
 [Ver respuestas]
 ```

@@ -15,6 +15,7 @@ from app.models import (
     HistoryAction,
     MessageRole,
     PageStatus,
+    QuestionKind,
     Role,
 )
 
@@ -235,18 +236,26 @@ class TurnOut(Contract):
 # CU-06
 
 
+ExamKind = Literal["development", "case", "multiple_choice", "true_false"]
+
+
 class ExamRequest(Contract):
     year: Year
     subject: Text
     topic: Text | None = None
     question_count: int = Field(ge=1, le=50)
     difficulty: Difficulty
+    # Por defecto, mixto: test, verdadero/falso, desarrollo y caso práctico.
+    types: list[ExamKind] | None = Field(default=None, min_length=1, max_length=4)
 
 
 class ExamQuestionOut(Contract):
     id: int
     position: int
+    kind: QuestionKind
     statement: str
+    options: list[str] | None
+    points: float
 
 
 class ExamOut(Contract):
@@ -256,6 +265,8 @@ class ExamOut(Contract):
     topic: str | None
     difficulty: Difficulty
     question_count: int
+    duration_minutes: int
+    total_points: float
     questions: list[ExamQuestionOut]
     created_at: datetime
 
@@ -264,6 +275,7 @@ class ExamAnswerOut(Contract):
     question_id: int
     position: int
     answer: str
+    criteria: str | None
     citations: list[CitationOut] = Field(min_length=1)
 
 

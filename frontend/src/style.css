@@ -548,3 +548,8 @@ td.wrap { min-width: 16rem; overflow-wrap: anywhere; }
   .meta { grid-template-columns: minmax(0, 1fr); }
   .bars { height: 160px; }
 }
+
+/* Examen mixto: enunciados con saltos de línea (caso práctico) y tipos elegibles */
+.questions .statement, .questions .solution { white-space: pre-line; }
+.kinds { border: 0; padding: 0; margin: var(--space-3) 0; display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); }
+.questions label:has(input[type=radio]) { display: block; }

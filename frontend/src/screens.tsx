@@ -1,10 +1,21 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router'
-import { api, ApiError, errorMessage, type Exam, type ExamAnswer, type FeedbackKind } from './api'
+import {
+  api,
+  ApiError,
+  downloadPdf,
+  errorMessage,
+  questionKindLabels,
+  type Exam,
+  type ExamAnswer,
+  type ExamKind,
+  type FeedbackKind,
+} from './api'
 import { CorpusOptions } from './CorpusOptions'
 
 const pageSize = 20
 const difficultyLabels = { easy: 'Baja', medium: 'Media', hard: 'Alta' } as const
+const examKinds: ExamKind[] = ['multiple_choice', 'true_false', 'development', 'case']
 
 export function Examen() {
   const [exams, setExams] = useState<Exam[]>([])
@@ -58,12 +69,26 @@ export function Examen() {
           topic: String(data.get('topic') ?? '').trim() || undefined,
           difficulty: data.get('difficulty'),
           question_count: Number(data.get('question_count')),
+          // Sin marcar ninguno (o los cuatro), el examen es mixto.
+          types: data.getAll('types').length ? data.getAll('types') : undefined,
         }),
       })
       setExams((items) => [created, ...items.filter((item) => item.id !== created.id)])
       open(created)
     } catch (err) {
       setError(err instanceof ApiError && err.status === 422 ? err.message : errorMessage(err))
+    } finally {
+      setPending(false)
+    }
+  }
+
+  async function save(path: string, filename: string) {
+    setPending(true)
+    setError('')
+    try {
+      await downloadPdf(path, filename)
+    } catch (err) {
+      setError(errorMessage(err))
     } finally {
       setPending(false)
     }
@@ -109,7 +134,14 @@ export function Examen() {
               </select>
             </label>
           </div>
+          <fieldset className="kinds">
+            <legend>Tipos de pregunta (sin marcar, mixto)</legend>
+            {examKinds.map((kind) => (
+              <label key={kind}><input type="checkbox" name="types" value={kind} /> {questionKindLabels[kind]}</label>
+            ))}
+          </fieldset>
           <button type="submit">Generar examen</button>
+          {pending && <p role="status" className="loading">Generando el examen con la IA; puede tardar hasta un minuto…</p>}
         </fieldset>
       </form>
 
@@ -132,21 +164,46 @@ export function Examen() {
         )}
       </section>
 
-      {pending && <p role="status" className="loading">Cargando…</p>}
       {error && <p role="alert" className="status error">{error}</p>}
       {exam && (
         <section className="result" aria-labelledby="active-exam">
           <h2 id="active-exam">{exam.subject}{exam.topic && ` · ${exam.topic}`}</h2>
+          <p className="note">{exam.duration_minutes} minutos · {String(exam.total_points).replace('.', ',')} puntos</p>
+          <div className="actions">
+            <button type="button" className="secondary" disabled={pending} onClick={() => save(`/exams/${exam.id}/pdf`, `examen-${exam.id}.pdf`)}>
+              Descargar examen (PDF)
+            </button>
+            <button type="button" className="secondary" disabled={pending} onClick={() => save(`/exams/${exam.id}/answers/pdf`, `clave-examen-${exam.id}.pdf`)}>
+              Descargar clave (PDF)
+            </button>
+          </div>
           <form key={exam.id} onSubmit={reveal}>
             <ol className="questions">
               {exam.questions.map((question) => {
                 const solution = answers.find((item) => item.question_id === question.id)
                 return (
                   <li key={question.id}>
-                    <label>{question.statement}<input name={String(question.id)} autoComplete="off" /></label>
+                    <p><strong>{questionKindLabels[question.kind]}</strong> · {String(question.points).replace('.', ',')} pts</p>
+                    <p className="statement">{question.statement}</p>
+                    {question.kind === 'multiple_choice' && question.options?.map((option, index) => (
+                      <label key={index}>
+                        <input type="radio" name={String(question.id)} value={index} /> {'ABCD'[index]}) {option}
+                      </label>
+                    ))}
+                    {question.kind === 'true_false' && ['Verdadero', 'Falso'].map((label) => (
+                      <label key={label}><input type="radio" name={String(question.id)} value={label} /> {label}</label>
+                    ))}
+                    {question.kind !== 'multiple_choice' && (
+                      <label>{question.kind === 'true_false' ? 'Justifica' : 'Respuesta'}
+                        {question.kind === 'completion'
+                          ? <input name={`${question.id}-text`} autoComplete="off" />
+                          : <textarea name={`${question.id}-text`} rows={question.kind === 'case' ? 8 : 4} />}
+                      </label>
+                    )}
                     {solution && (
                       <>
                         <p className="solution">Respuesta esperada: {solution.answer}</p>
+                        {solution.criteria && <p className="note">Criterio de corrección: {solution.criteria}</p>}
                         {solution.citations.map((citation) => (
                           <blockquote className="source" key={citation.position}>
                             <p>{citation.quote}</p>

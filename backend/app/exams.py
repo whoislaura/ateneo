@@ -1,76 +1,68 @@
-"""CU-06: ejercicios de completar texto basados en páginas vigentes del corpus."""
+"""CU-06: examen mixto con IA (ver app.rag.exam) y sus citas verificadas."""
 
-import re
+import random
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import Citation, Difficulty, Document, DocumentStatus, ExamQuestion, Page
-from app.rag.answer import SENTENCE
-from app.rag.index import content_terms
-from app.rag.vector import filter_key
+from app.models import Citation, ExamQuestion
+from app.query import setting
+from app.rag import vector
+from app.rag.exam import PROVIDERS, generate_exam, load_passages, plan, points_and_minutes
 from app.schemas import ExamRequest
 
-MISSING_TERMS = {Difficulty.EASY: 1, Difficulty.MEDIUM: 2, Difficulty.HARD: 3}
-WORD = re.compile(r"[^\W_]+")
 
-
-def make_questions(db: Session, request: ExamRequest) -> list[ExamQuestion]:
-    pages = (
-        select(Page, Document)
-        .join(Document, Page.document_id == Document.id)
-        .where(
-            Document.status != DocumentStatus.RETIRED,
-            Document.year == request.year,
-            func.lower(func.trim(Document.subject)) == filter_key(request.subject),
+def make_questions(db: Session, request: ExamRequest) -> tuple[list[ExamQuestion], int]:
+    """Preguntas del examen (con citas) y duración en minutos. 422 si no se logra la cantidad."""
+    provider = setting(PROVIDERS, "ATENEO_LLM_PROVIDER")
+    setting(vector.EMBEDDERS, "ATENEO_EMBEDDER")  # misma validación de entorno que el resto
+    passages = load_passages(
+        db,
+        year=request.year,
+        subject=request.subject,
+        topic=request.topic,
+        count=request.question_count,
+        rng=random.Random(),
+    )
+    if not passages:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "El corpus vigente no tiene material con esos filtros.",
         )
-        .order_by(Page.document_id, Page.number)
-        .execution_options(yield_per=32)
-    )
-    if request.topic is not None:
-        pages = pages.where(func.lower(func.trim(Document.topic)) == filter_key(request.topic))
-    missing = MISSING_TERMS[request.difficulty]
-    questions: list[ExamQuestion] = []
-    seen: set[tuple[str, str]] = set()
-    with db.execute(pages) as rows:
-        for page, document in rows:
-            for sentence in SENTENCE.finditer(page.text):
-                quote = sentence.group()
-                terms = [word for word in WORD.finditer(quote) if content_terms(word.group())]
-                if len(terms) < missing + 2 or quote.isupper():
-                    continue
-                middle = (len(terms) - missing) // 2
-                start, end = terms[middle].start(), terms[middle + missing - 1].end()
-                fragment = f"{quote[:start]}[…]{quote[end:]}"
-                answer = quote[start:end]
-                key = (fragment.casefold(), answer.casefold())
-                if key in seen:
-                    continue
-                seen.add(key)
-                questions.append(
-                    ExamQuestion(
-                        position=len(questions) + 1,
-                        statement=f"Completa el fragmento: «{fragment}»",
-                        answer=answer,
-                        citations=[
-                            Citation(
-                                position=1,
-                                document_id=document.id,
-                                document_title=document.title,
-                                document_version=document.version,
-                                page_number=page.number,
-                                page_label=page.label,
-                                start_offset=sentence.start(),
-                                end_offset=sentence.end(),
-                                quote=quote,
-                            )
-                        ],
-                    )
+    kinds = plan(request.question_count, request.types)
+    questions = generate_exam(db, kinds, passages, request.difficulty, provider)
+    if len(questions) < len(kinds):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            f"El corpus vigente permite {len(questions)} preguntas con respaldo verificable "
+            "con esos filtros; reduce la cantidad o cambia los tipos.",
+        )
+    points, minutes = points_and_minutes([q["kind"] for q in questions])
+    rows = [
+        ExamQuestion(
+            position=position,
+            kind=q["kind"],
+            statement=q["statement"],
+            options=q["options"],
+            answer=q["answer"],
+            criteria=q["criteria"],
+            points=score,
+            citations=[
+                Citation(
+                    position=n,
+                    chunk_id=c["chunk_id"],
+                    document_id=c["document_id"],
+                    document_title=c["title"],
+                    document_version=c["version"],
+                    page_number=c["page"],
+                    page_label=c["page_label"],
+                    start_offset=c["start"],
+                    end_offset=c["end"],
+                    quote=c["quote"],
                 )
-                if len(questions) == request.question_count:
-                    return questions
-    raise HTTPException(
-        status.HTTP_422_UNPROCESSABLE_CONTENT,
-        f"El corpus vigente permite {len(questions)} preguntas con esos filtros y dificultad.",
-    )
+                for n, c in enumerate(q["citations"], 1)
+            ],
+        )
+        for position, (q, score) in enumerate(zip(questions, points, strict=True), 1)
+    ]
+    return rows, minutes
