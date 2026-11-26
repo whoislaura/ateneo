@@ -492,13 +492,17 @@ def create_exam(
 def list_exams(
     user: Annotated[User, Depends(current_user)],
     db: Annotated[Session, Depends(get_db)],
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    offset: Annotated[int, Query(ge=0, le=1_000_000)] = 0,
 ) -> list[ExamOut]:
-    """Estudiante, Profesor. Exámenes propios."""
+    """Estudiante, Profesor. Exámenes propios, más recientes primero."""
     statement = (
         select(Exam)
         .where(Exam.user_id == user.id)
         .options(selectinload(Exam.questions))
         .order_by(Exam.created_at.desc(), Exam.id.desc())
+        .limit(limit)
+        .offset(offset)
     )
     return [ExamOut.model_validate(exam, from_attributes=True) for exam in db.scalars(statement)]
 

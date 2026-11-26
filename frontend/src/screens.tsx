@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router'
 import { api, ApiError, errorMessage, type Exam, type ExamAnswer, type FeedbackKind } from './api'
 import { CorpusOptions } from './CorpusOptions'
 
+const pageSize = 20
 const difficultyLabels = { easy: 'Baja', medium: 'Media', hard: 'Alta' } as const
 
 export function Examen() {
@@ -13,12 +14,16 @@ export function Examen() {
   const [error, setError] = useState('')
   const [listStatus, setListStatus] = useState('Cargando exámenes guardados…')
   const [listError, setListError] = useState('')
+  const [page, setPage] = useState({ offset: 0, more: false })
 
   useEffect(() => {
     const controller = new AbortController()
-    api<Exam[]>('/exams', { signal: controller.signal })
-      .then((rows) => {
+    // limit = pageSize + 1: la fila extra indica que hay más (como Historial)
+    api<Exam[]>(`/exams?limit=${pageSize + 1}&offset=${page.offset}`, { signal: controller.signal })
+      .then((fetched) => {
         if (!controller.signal.aborted) {
+          const rows = fetched.slice(0, pageSize)
+          setPage((current) => (current.more === fetched.length > pageSize ? current : { ...current, more: fetched.length > pageSize }))
           setExams((current) => [...current, ...rows.filter((row) => !current.some((item) => item.id === row.id))])
           setListStatus('')
           setListError('')
@@ -31,7 +36,7 @@ export function Examen() {
         }
       })
     return () => controller.abort()
-  }, [])
+  }, [page.offset])
 
   function open(next: Exam) {
     setExam(next)
@@ -121,6 +126,9 @@ export function Examen() {
               </button>
             </li>
           ))}</ul>
+        )}
+        {page.more && !listStatus && (
+          <button type="button" className="secondary" onClick={() => { setListStatus('Cargando exámenes guardados…'); setPage({ offset: page.offset + pageSize, more: false }) }}>Cargar más</button>
         )}
       </section>
 
