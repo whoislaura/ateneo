@@ -50,7 +50,7 @@ Compose construye `DATABASE_URL` con `POSTGRES_*` (por eso `POSTGRES_PASSWORD` s
 
 Tras cambiar `.env`: `docker compose up -d` (recrea la API).
 
-**Cuentas IA rotativas.** Con varias claves, cada llamada empieza por la última que funcionó; ante 429, 5xx, timeout o error de red pasa a la siguiente. Hace como máximo un intento por clave (dos si hay una sola) y después la API responde 503 `service_unavailable` sin guardar nada. Otros 4xx (p. ej. 401 por clave revocada) no se reintentan: retirar esa clave de la lista. Las claves nunca se registran; los reintentos aparecen como `ai_retry` con la posición de la clave (`key_index`).
+**Cuentas IA rotativas.** Con varias claves, cada llamada empieza por la última que funcionó; ante 401/402/403 (clave revocada o sin saldo), 429, 5xx o error de red pasa a la siguiente; tras un timeout no reintenta (otro intento superaría los 120 s de Nginx; `ATENEO_LLM_TIMEOUT` debe quedar por debajo). Hace como máximo un intento por clave (dos si hay una sola) y después la API responde 503 `service_unavailable` sin guardar nada. Otros 4xx (p. ej. 400) no se reintentan. Una respuesta 200 sin contenido válido también acaba en 503; la causa queda en el log `ai_error`. Retirar de la lista las claves revocadas o sin saldo. Las claves nunca se registran; los reintentos aparecen como `ai_retry` con la posición de la clave (`key_index`).
 
 ### Límites de subida
 

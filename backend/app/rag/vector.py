@@ -71,8 +71,11 @@ def openai_compatible_embedder(texts: list[str], key: str | None = None) -> list
             headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
         )
         with urllib.request.urlopen(request, timeout=60) as response:
-            data = sorted(json.load(response)["data"], key=lambda item: item["index"])
-        vectors += [item["embedding"] for item in data]
+            try:
+                data = sorted(json.load(response)["data"], key=lambda item: item["index"])
+                vectors += [item["embedding"] for item in data]
+            except (KeyError, TypeError):
+                raise ValueError("Respuesta inválida del proveedor") from None
     if len(vectors) != len(texts) or any(len(v) != dimension for v in vectors):
         raise ValueError(f"El modelo no devolvió {len(texts)} vectores de dimensión {dimension}.")
     return vectors
