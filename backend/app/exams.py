@@ -32,7 +32,7 @@ def make_questions(db: Session, request: ExamRequest) -> list[ExamQuestion]:
         pages = pages.where(func.lower(func.trim(Document.topic)) == filter_key(request.topic))
     missing = MISSING_TERMS[request.difficulty]
     questions: list[ExamQuestion] = []
-    seen: set[str] = set()
+    seen: set[tuple[str, str]] = set()
     with db.execute(pages) as rows:
         for page, document in rows:
             for sentence in SENTENCE.finditer(page.text):
@@ -43,14 +43,16 @@ def make_questions(db: Session, request: ExamRequest) -> list[ExamQuestion]:
                 middle = (len(terms) - missing) // 2
                 start, end = terms[middle].start(), terms[middle + missing - 1].end()
                 fragment = f"{quote[:start]}[…]{quote[end:]}"
-                if fragment.casefold() in seen:
+                answer = quote[start:end]
+                key = (fragment.casefold(), answer.casefold())
+                if key in seen:
                     continue
-                seen.add(fragment.casefold())
+                seen.add(key)
                 questions.append(
                     ExamQuestion(
                         position=len(questions) + 1,
                         statement=f"Completa el fragmento: «{fragment}»",
-                        answer=quote[start:end],
+                        answer=answer,
                         citations=[
                             Citation(
                                 position=1,

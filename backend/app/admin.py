@@ -8,7 +8,7 @@ from datetime import UTC, datetime, time, timedelta
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -213,6 +213,18 @@ def create_account(body: AdminUserCreate, admin: Admin, db: Db) -> AdminUserOut:
     return user_out(user, 0)
 
 
+def guard_last_admin(db: Session, target_id: int) -> None:
+    """Revalida la guarda con el bloqueo del dialecto: FOR UPDATE o escritura SQLite."""
+    admins = select(User.id).where(User.role == Role.ADMIN, User.is_active).order_by(User.id)
+    if db.get_bind().dialect.name == "sqlite":
+        db.execute(update(User).where(User.role == Role.ADMIN, User.is_active).values(id=User.id))
+    else:
+        admins = admins.with_for_update()
+    remaining = db.scalars(admins).all()
+    if not [admin_id for admin_id in remaining if admin_id != target_id]:
+        raise conflict("Debe quedar al menos un administrador activo.")
+
+
 @router.patch("/users/{user_id}", response_model=AdminUserOut, responses=NOT_FOUND | CONFLICT)
 def update_account(user_id: int, body: AdminUserUpdate, admin: Admin, db: Db) -> AdminUserOut:
     """Desactivar revoca las sesiones. 409 si deja al propio admin sin acceso o sin admins."""
@@ -226,11 +238,7 @@ def update_account(user_id: int, body: AdminUserUpdate, admin: Admin, db: Db) ->
     if loses_admin and user.id == admin.id:
         raise conflict("No puede desactivarse ni quitarse el rol de administrador a sí mismo.")
     if loses_admin:
-        others = db.scalar(
-            select(func.count()).where(User.role == Role.ADMIN, User.is_active, User.id != user.id)
-        )
-        if not others:
-            raise conflict("Debe quedar al menos un administrador activo.")
+        guard_last_admin(db, user.id)
     for field, value in changes.items():
         setattr(user, field, value)
     if changes.get("is_active") is False:

@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.db import session_factory
 from app.rag import vector
-from app.rag.answer import MODES, PROVIDERS, answer_question, evaluate
+from app.rag.answer import MODES, PROVIDERS, answer_question, content_terms, evaluate
 from app.rag.index import index_document, read_documents, search
 from app.rag.ingestion import ChunkSettings, DocumentMetadata, extract_pdf
 
@@ -48,7 +48,8 @@ def eval_report(report: dict) -> str:
     lines = []
     for r in report["results"]:
         cited = ", ".join(f"{c['document_id']} p. {c['page']}" for c in r.get("citations", []))
-        detail = r.get("error") or " ".join(r["answer"].split())[:160]
+        answer = r.get("answer") or ""
+        detail = r.get("error") or " ".join(answer.split())[:160] or "sin detalle"
         lines.append(
             f"{'OK   ' if r['passed'] else 'FALLA'} {r['id']} {r['status']} [{cited}] {detail}"
         )
@@ -101,6 +102,11 @@ def main(argv: list[str] | None = None) -> int:
     lookup = commands.add_parser("search", help="Buscar fragmentos con referencia de origen")
     lookup.add_argument("--index", type=Path)
     lookup.add_argument("--query", required=True)
+    lookup.add_argument(
+        "--literal",
+        action="store_true",
+        help="Buscar la consulta tal cual, sin quitar palabras vacías",
+    )
     lookup.add_argument("--year", type=int, choices=range(1, 5))
     lookup.add_argument("--subject")
     lookup.add_argument("--topic")
@@ -171,9 +177,10 @@ def main(argv: list[str] | None = None) -> int:
                 limit=args.limit,
             )
         else:
+            query = args.query if args.literal else " ".join(content_terms(args.query))
             result = search(
                 args.index,
-                args.query,
+                query,
                 year=args.year,
                 subject=args.subject,
                 topic=args.topic,

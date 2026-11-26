@@ -16,6 +16,7 @@ import hmac
 import math
 import os
 import secrets
+import threading
 import time
 from datetime import UTC, datetime, timedelta
 from functools import cache
@@ -109,6 +110,7 @@ class LoginLimiter:
     def __init__(self, clock=time.monotonic):
         self.clock = clock
         self.failures: dict[str, tuple[float, int]] = {}
+        self._lock = threading.Lock()
 
     @staticmethod
     def _keys(email: str, ip: str) -> dict[str, int]:
@@ -132,18 +134,20 @@ class LoginLimiter:
 
     def fail(self, email: str, ip: str) -> None:
         now = self.clock()
-        if len(self.failures) > 10_000:  # acota la memoria ante muchos correos distintos
-            self.failures = {
-                key: value
-                for key, value in self.failures.items()
-                if now - value[0] < LOGIN_WINDOW_SECONDS
-            }
-        for key in self._keys(email, ip):
-            start, count = self._current(key, now)
-            self.failures[key] = (start, count + 1)
+        with self._lock:
+            if len(self.failures) > 10_000:  # acota la memoria ante muchos correos distintos
+                self.failures = {
+                    key: value
+                    for key, value in self.failures.items()
+                    if now - value[0] < LOGIN_WINDOW_SECONDS
+                }
+            for key in self._keys(email, ip):
+                start, count = self._current(key, now)
+                self.failures[key] = (start, count + 1)
 
     def succeed(self, email: str) -> None:
-        self.failures.pop(f"email:{email.strip().lower()}", None)
+        with self._lock:
+            self.failures.pop(f"email:{email.strip().lower()}", None)
 
 
 login_limiter = LoginLimiter()
