@@ -52,6 +52,7 @@ from app.schemas import (
     FeedbackRequest,
     GenerationRequest,
     HistoryEntryOut,
+    Id,
     IngestionReport,
     LoginRequest,
     PageOut,
@@ -79,6 +80,7 @@ def ai_unavailable(exc: Exception, message: str) -> HTTPException:
         cause += f": {str(exc)[:300]}"
     ai_log.warning("ai_error", extra={"error": cause})
     return HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, message)
+
 
 public = APIRouter(prefix="/api/v1", responses=ERRORS)
 router = APIRouter(prefix="/api/v1", responses=ERRORS, dependencies=[Depends(current_user)])
@@ -251,7 +253,7 @@ def create_generation(
     "/answers/{answer_id}", response_model=AnswerOut, responses=NOT_FOUND, tags=["consulta"]
 )
 def get_answer(
-    answer_id: int,
+    answer_id: Id,
     user: Annotated[User, Depends(current_user)],
     db: Annotated[Session, Depends(get_db)],
 ):
@@ -356,7 +358,7 @@ def retire_document(
 )
 def get_page(
     document_id: str,
-    page_number: int,
+    page_number: Id,
     user: Annotated[User, Depends(current_user)],
     db: Annotated[Session, Depends(get_db)],
 ):
@@ -382,7 +384,7 @@ def list_history(
     user: Annotated[User, Depends(current_user)],
     db: Annotated[Session, Depends(get_db)],
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
-    offset: Annotated[int, Query(ge=0)] = 0,
+    offset: Annotated[int, Query(ge=0, le=1_000_000)] = 0,
 ) -> list[HistoryEntryOut]:
     """Estudiante, Profesor. Consultas y generaciones propias, más recientes primero."""
     statement = (
@@ -403,9 +405,7 @@ def delete_answers(db: Session, answer_ids: list[int]) -> None:
     """Borra respuestas y citas; el feedback queda desvinculado."""
     if not answer_ids:
         return
-    db.execute(
-        update(Feedback).where(Feedback.answer_id.in_(answer_ids)).values(answer_id=None)
-    )
+    db.execute(update(Feedback).where(Feedback.answer_id.in_(answer_ids)).values(answer_id=None))
     db.execute(delete(Citation).where(Citation.answer_id.in_(answer_ids)))
     db.execute(delete(Answer).where(Answer.id.in_(answer_ids)))
 
@@ -420,18 +420,19 @@ def deletable_history(
 
 
 @router.delete(
-    "/history/{entry_id}", status_code=204, responses=NOT_FOUND, dependencies=STUDY,
+    "/history/{entry_id}",
+    status_code=204,
+    responses=NOT_FOUND,
+    dependencies=STUDY,
     tags=["historial"],
 )
 def delete_history_entry(
-    entry_id: int,
+    entry_id: Id,
     user: Annotated[User, Depends(current_user)],
     db: Annotated[Session, Depends(get_db)],
 ):
     """Autor. Borra una consulta o generación y su respuesta guardada."""
-    entry = deletable_history(
-        db, entry_id, user, (HistoryAction.QUERY, HistoryAction.GENERATION)
-    )
+    entry = deletable_history(db, entry_id, user, (HistoryAction.QUERY, HistoryAction.GENERATION))
     if entry.answer_id is not None:
         delete_answers(db, [entry.answer_id])
     db.delete(entry)
@@ -456,9 +457,7 @@ def clear_history(
     )
     delete_answers(db, answer_ids)
     db.execute(
-        delete(HistoryEntry).where(
-            HistoryEntry.user_id == user.id, HistoryEntry.action.in_(study)
-        )
+        delete(HistoryEntry).where(HistoryEntry.user_id == user.id, HistoryEntry.action.in_(study))
     )
     db.commit()
 
@@ -517,7 +516,7 @@ def owned_exam(db: Session, exam_id: int, user: User) -> Exam:
     tags=["examenes"],
 )
 def get_exam(
-    exam_id: int,
+    exam_id: Id,
     user: Annotated[User, Depends(current_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> ExamOut:
@@ -533,7 +532,7 @@ def get_exam(
     tags=["examenes"],
 )
 def get_exam_answers(
-    exam_id: int,
+    exam_id: Id,
     user: Annotated[User, Depends(current_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> list[ExamAnswerOut]:

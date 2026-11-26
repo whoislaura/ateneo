@@ -4,7 +4,7 @@ from datetime import date, datetime
 from typing import Annotated, Any, Literal, Self
 
 from fastapi import UploadFile
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from app.models import (
     AnswerKind,
@@ -17,9 +17,12 @@ from app.models import (
     Role,
 )
 
+# Las columnas id son INTEGER de 32 bits: sin cota, Postgres daría 500 en vez de 404/422.
+Id = Annotated[int, Field(ge=1, le=2**31 - 1)]
 Year = Annotated[int, Field(ge=1, le=4)]
 Text = Annotated[str, Field(min_length=1, max_length=200)]
 Question = Annotated[str, Field(min_length=1, max_length=1000)]
+RawPassword = Annotated[str, StringConstraints(strip_whitespace=False)]
 
 
 class Contract(BaseModel):
@@ -43,7 +46,7 @@ class ErrorResponse(Contract):
 
 class LoginRequest(Contract):
     email: Annotated[str, Field(min_length=3, max_length=320)]
-    password: Annotated[str, Field(min_length=1, max_length=200)]
+    password: Annotated[RawPassword, Field(min_length=1, max_length=200)]
 
 
 class UserOut(Contract):
@@ -232,8 +235,8 @@ class FeedbackRequest(Contract):
     kind: FeedbackKind
     rating: int | None = Field(default=None, ge=1, le=5)
     comment: Annotated[str, Field(min_length=1, max_length=2000)] | None = None
-    answer_id: int | None = None
-    exam_id: int | None = None
+    answer_id: Id | None = None
+    exam_id: Id | None = None
 
     @model_validator(mode="after")
     def kind_fields(self) -> Self:
@@ -252,7 +255,7 @@ class FeedbackOut(FeedbackRequest):
 # Administración
 
 
-Password = Annotated[str, Field(min_length=8, max_length=200)]  # MIN_PASSWORD de app.auth
+Password = Annotated[RawPassword, StringConstraints(min_length=8, max_length=200)]  # MIN_PASSWORD
 Name = Annotated[str, Field(min_length=1, max_length=200)]
 
 

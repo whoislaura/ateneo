@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app import logs
 from app.api import ERRORS, NOT_FOUND, answer_out
-from app.auth import create_user, current_user, require_roles, set_password
+from app.auth import create_user, current_user, guard_last_admin, require_roles, set_password
 from app.db import get_db
 from app.models import (
     Answer,
@@ -44,6 +44,7 @@ from app.schemas import (
     DayActivity,
     DocumentStats,
     ErrorResponse,
+    Id,
     PasswordReset,
     UserRef,
     UserStats,
@@ -62,7 +63,7 @@ router = APIRouter(
 Db = Annotated[Session, Depends(get_db)]
 Admin = Annotated[User, Depends(current_user)]
 Limit = Annotated[int, Query(ge=1, le=100)]
-Offset = Annotated[int, Query(ge=0)]
+Offset = Annotated[int, Query(ge=0, le=1_000_000)]
 
 
 def audit(action: str, target: int, admin: User) -> None:
@@ -214,7 +215,7 @@ def create_account(body: AdminUserCreate, admin: Admin, db: Db) -> AdminUserOut:
 
 
 @router.patch("/users/{user_id}", response_model=AdminUserOut, responses=NOT_FOUND | CONFLICT)
-def update_account(user_id: int, body: AdminUserUpdate, admin: Admin, db: Db) -> AdminUserOut:
+def update_account(user_id: Id, body: AdminUserUpdate, admin: Admin, db: Db) -> AdminUserOut:
     """Desactivar revoca las sesiones. 409 si deja al propio admin sin acceso o sin admins."""
     user = existing_user(db, user_id)
     changes = body.model_dump(exclude_none=True)
@@ -226,11 +227,7 @@ def update_account(user_id: int, body: AdminUserUpdate, admin: Admin, db: Db) ->
     if loses_admin and user.id == admin.id:
         raise conflict("No puede desactivarse ni quitarse el rol de administrador a sí mismo.")
     if loses_admin:
-        others = db.scalar(
-            select(func.count()).where(User.role == Role.ADMIN, User.is_active, User.id != user.id)
-        )
-        if not others:
-            raise conflict("Debe quedar al menos un administrador activo.")
+        guard_last_admin(db, user.id)
     for field, value in changes.items():
         setattr(user, field, value)
     if changes.get("is_active") is False:
@@ -241,14 +238,14 @@ def update_account(user_id: int, body: AdminUserUpdate, admin: Admin, db: Db) ->
 
 
 @router.post("/users/{user_id}/password", status_code=204, responses=NOT_FOUND)
-def reset_password(user_id: int, body: PasswordReset, admin: Admin, db: Db) -> None:
+def reset_password(user_id: Id, body: PasswordReset, admin: Admin, db: Db) -> None:
     """Cambia la contraseña y revoca las sesiones del usuario."""
     set_password(db, existing_user(db, user_id), body.password)
     audit("password_reset", user_id, admin)
 
 
 @router.delete("/users/{user_id}/sessions", status_code=204, responses=NOT_FOUND)
-def revoke_sessions(user_id: int, admin: Admin, db: Db) -> None:
+def revoke_sessions(user_id: Id, admin: Admin, db: Db) -> None:
     revoke_all(db, existing_user(db, user_id))
     db.commit()
     audit("sessions_revoke", user_id, admin)
@@ -266,7 +263,7 @@ def list_answers(
     db: Db,
     kind: AnswerKind | None = None,
     answer_status: Annotated[AnswerStatus | None, Query(alias="status")] = None,
-    user_id: int | None = None,
+    user_id: Id | None = None,
     limit: Limit = 20,
     offset: Offset = 0,
 ) -> list[AdminAnswerOut]:
@@ -295,7 +292,7 @@ def list_answers(
 
 
 @router.get("/answers/{answer_id}", response_model=AnswerOut, responses=NOT_FOUND)
-def get_answer(answer_id: int, db: Db) -> AnswerOut:
+def get_answer(answer_id: Id, db: Db) -> AnswerOut:
     """Detalle completo de cualquier respuesta, sin restricción de autor."""
     answer = db.get(Answer, answer_id)
     if answer is None:
