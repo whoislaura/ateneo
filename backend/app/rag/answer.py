@@ -59,7 +59,35 @@ verificarse se eliminarán de la respuesta.
 - Extensión orientativa: entre 300 y 900 palabras, sin repetir contenido.
 - Si los fragmentos no permiten responder, responde exactamente: {NOT_FOUND}"""
 
+# Modo «chat»: misma recuperación amplia que «desarrollada», pero en prosa conversacional.
+CHAT_PROMPT = f"""Eres Ateneo, asistente académico de la Licenciatura en Derecho. Conversas con \
+un estudiante: responde en español, con claridad y de forma completa, usando únicamente los \
+fragmentos del corpus que recibes.
+{RULES}
+- Si recibes una conversación previa, úsala solo para entender a qué se refiere la pregunta: \
+no es fuente y no puede respaldar afirmaciones.
+- Empieza respondiendo directamente la pregunta; después explica el fundamento en párrafos \
+cortos, relacionando los fragmentos de distintos documentos cuando corresponda.
+- Puedes usar listas con la forma «- elemento [F2]». No uses títulos, negritas ni tablas.
+- Si los fragmentos cubren solo una parte de la pregunta, responde esa parte y termina diciendo \
+qué aspectos no cubren, sin completarlos.
+- Puedes escribir oraciones de enlace sin marca solo si no añaden hechos, normas, cifras ni fechas.
+- Toda oración que afirme un hecho, norma, plazo o cifra lleva su marca; las que no puedan \
+verificarse se eliminarán de la respuesta.
+- Extensión orientativa: entre 150 y 600 palabras, sin repetir contenido.
+- Si los fragmentos no permiten responder nada, responde exactamente: {NOT_FOUND}"""
+
+# Reformula una pregunta de seguimiento como pregunta autónoma antes de recuperar fragmentos.
+REWRITE_PROMPT = """Reescribe la última pregunta del estudiante como una pregunta autónoma, \
+completa y en español, usando la conversación previa solo para resolver referencias («eso», \
+«¿y en el caso de…?»). No la respondas, no añadas datos y responde solo con la pregunta."""
+CONVERSATION = "Conversación previa:\n"
+FOLLOW_UP = "\n\nPregunta de seguimiento: "
+HISTORY_CHARS = 300  # por mensaje; el hilo se recorta a los últimos HISTORY_MESSAGES
+HISTORY_MESSAGES = 6
+
 MARKER = re.compile(r"\[F(\d+)\]")
+MARKER_N = re.compile(r"\s*\[\d+\]")
 SEPARATOR = "\n---\n"
 DIGITS = re.compile(r"\d+")
 # «[F1, F2]» o «[F1; F2]»: se rechaza (no se parte en varias marcas) para que cada marca tenga
@@ -71,17 +99,43 @@ SENTENCE = re.compile(r"[^\s.!?][^.!?\n]*[.!?]?")
 # un punto sin espacio detrás ("1.850") no corta.
 SEGMENT = re.compile(r"(?:[^.!?\n]|[.!?](?![\s\[]|$))*(?:[.!?]+(?:[ \t]*\[F\d+\])*[ \t]*|\n|$)")
 DROPPED = "Oración eliminada: su cita no es verificable o tiene cifras sin marca."
-MODES = ("breve", "desarrollada")
+MODES = ("breve", "desarrollada", "chat")
 
 Provider = Callable[[str, str], str]
 
 
-def build_prompt(question: str, passages: list[dict]) -> str:
+def trim_history(history: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """Últimos turnos (rol, texto) sin marcas [n] ni saltos de línea y con texto acotado."""
+    return [
+        (role, " ".join(MARKER_N.sub("", text).split())[:HISTORY_CHARS])
+        for role, text in history[-HISTORY_MESSAGES:]
+    ]
+
+
+def history_text(history: list[tuple[str, str]]) -> str:
+    return "\n".join(f"{'Usuario' if r == 'user' else 'Asistente'}: {t}" for r, t in history)
+
+
+def standalone_question(question: str, history: list[tuple[str, str]], provider: Provider) -> str:
+    """Pregunta autónoma a partir de los últimos turnos; si el proveedor falla, concatena la
+    pregunta anterior del usuario (la recuperación sigue funcionando sin el LLM)."""
+    previous = [text for role, text in history if role == "user"]
+    fallback = f"{previous[-1]} {question}" if previous else question
+    prompt = f"{CONVERSATION}{history_text(history)}{FOLLOW_UP}{question}"
+    try:
+        rewritten = " ".join(provider(REWRITE_PROMPT, prompt).split())
+    except (OSError, ValueError):
+        return fallback[:1000]
+    return (rewritten or fallback)[:1000]
+
+
+def build_prompt(question: str, passages: list[dict], history: list[tuple[str, str]] = ()) -> str:
     blocks = [
         f"[F{n}] {p['title']}, p. {p['page_number']}\n{p['text']}"
         for n, p in enumerate(passages, 1)
     ]
-    return "Fragmentos:\n" + SEPARATOR.join(blocks) + f"{SEPARATOR}Pregunta: {question}"
+    context = f"{CONVERSATION}{history_text(history)}\n\n" if history else ""
+    return context + "Fragmentos:\n" + SEPARATOR.join(blocks) + f"{SEPARATOR}Pregunta: {question}"
 
 
 def fake_provider(system: str, user: str) -> str:
@@ -90,9 +144,13 @@ def fake_provider(system: str, user: str) -> str:
     Con DEVELOPED_PROMPT devuelve la estructura del modo «desarrollada» con la mejor oración
     de cada uno de los tres mejores fragmentos.
     """
+    if system == REWRITE_PROMPT:  # determinista: pregunta anterior del usuario + seguimiento
+        talk, _, follow_up = user.removeprefix(CONVERSATION).rpartition(FOLLOW_UP)
+        asked = [line[9:] for line in talk.splitlines() if line.startswith("Usuario: ")]
+        return f"{asked[-1]} {follow_up}" if asked else follow_up
     body, _, question = user.rpartition(f"{SEPARATOR}Pregunta: ")
     wanted, scored = set(content_terms(question)), []
-    for block in body.removeprefix("Fragmentos:\n").split(SEPARATOR):
+    for block in body.rpartition("Fragmentos:\n")[2].split(SEPARATOR):
         header, _, text = block.partition("\n")
         marker = MARKER.match(header)
         best_in_block = (0, "")
@@ -105,6 +163,8 @@ def fake_provider(system: str, user: str) -> str:
     best = [claim for _, claim in sorted(scored, key=lambda item: item[0])[:3]]
     if not best:
         return NOT_FOUND
+    if system == CHAT_PROMPT:
+        return "\n".join(best)
     if system != DEVELOPED_PROMPT:
         return best[0]
     sections = [
@@ -130,14 +190,20 @@ def openai_compatible_provider(system: str, user: str, key: str | None = None) -
         "model": model,
         "temperature": 0,
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+        # Sin tope explícito algunos proveedores gratuitos cortan la respuesta en pocos tokens.
+        "max_tokens": env_int("ATENEO_LLM_MAX_TOKENS", 3000, 100, 32000),
     }
+    if system == REWRITE_PROMPT:
+        payload["max_tokens"] = 200
     request = urllib.request.Request(
         base_url + "/chat/completions",
         data=json.dumps(payload).encode("utf-8"),
         headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
     )
     # Las respuestas desarrolladas tardan más; nginx corta a los 120 s (frontend/nginx.conf).
-    timeout = env_int("ATENEO_LLM_TIMEOUT", 60, 1, 600)
+    timeout = env_int("ATENEO_LLM_TIMEOUT", 100, 1, 600)
+    if system == REWRITE_PROMPT:  # la reformulación es corta: no debe agotar los 120 s de nginx
+        timeout = env_int("ATENEO_REWRITE_TIMEOUT", 15, 1, 100)
     with urllib.request.urlopen(request, timeout=timeout) as response:
         data = json.load(response)
     try:
@@ -347,16 +413,22 @@ def answer_question(
     topic: str | None = None,
     limit: int = 5,
     mode: str = "breve",
+    history: list[tuple[str, str]] = (),
 ) -> dict:
-    """Responde CU-01. Ver docs/rag-prototype.md para la forma del resultado y los modos."""
+    """Responde CU-01. Ver docs/rag-prototype.md para la forma del resultado y los modos.
+
+    `history` (rol, texto) son los turnos previos de un chat: la pregunta se reformula como
+    autónoma antes de recuperar y los turnos acompañan al prompt. `question` del resultado es
+    la pregunta original.
+    """
     if mode not in MODES:
         raise ValueError(f"Modo desconocido: {mode}")
     filters = {"year": year, "subject": subject, "topic": topic}
-    developed = mode == "desarrollada"
-    if developed:
-        passages = retrieve_developed(source, question, embedder, **filters)
-    else:
-        passages = retrieve(source, question, embedder, limit=limit, **filters)
+    history = trim_history(list(history))
+    search = question
+    if history:
+        release_connection(source)  # la reformulación también llama al proveedor
+        search = standalone_question(question, history, provider)
     result = {
         "question": question,
         "status": "no_evidence",
@@ -364,15 +436,18 @@ def answer_question(
         "citations": [],
         "invalid_citations": [],
     }
+    if mode == "breve":
+        passages = retrieve(source, search, embedder, limit=limit, **filters)
+    else:
+        passages = retrieve_developed(source, search, embedder, **filters)
     if not passages:
         return result
-    system = DEVELOPED_PROMPT if developed else SYSTEM_PROMPT
+    system = {"breve": SYSTEM_PROMPT, "desarrollada": DEVELOPED_PROMPT, "chat": CHAT_PROMPT}[mode]
     release_connection(source)
     # Las marcas [n] del contrato solo las pone el backend.
-    reply = re.sub(r"\[\d+\]", "", provider(system, build_prompt(question, passages)))
-    if developed:
-        return result | cite_reply(source, passages, reply, claim_in_line, partial=True)
-    return result | cite_reply(source, passages, reply)
+    reply = re.sub(r"\[\d+\]", "", provider(system, build_prompt(search, passages, history)))
+    # Una oración sin verificar se descarta; no invalida el resto de la respuesta.
+    return result | cite_reply(source, passages, reply, claim_in_line, partial=True)
 
 
 def cite_reply(

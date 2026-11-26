@@ -83,14 +83,16 @@ def test_markers_are_resolved_to_exact_quotes_and_renumbered(index):
     assert result["invalid_citations"] == []
 
 
-def test_answer_with_valid_and_unknown_markers_is_rejected(index):
+def test_answer_with_valid_and_unknown_markers_drops_only_that_sentence(index):
     def provider(system, user):
         return "Conserva un catálogo [F1]. Afirmación inventada [F9]."
 
     result = answer_question(index, "¿Qué conserva la biblioteca?", provider, year=1)
-    assert result["status"] == "no_evidence"
-    assert result["answer"] == NOT_FOUND and result["citations"] == []
-    assert [item["marker"] for item in result["invalid_citations"]] == ["[F9]"]
+    assert result["status"] == "answered" and result["answer"] == "Conserva un catálogo [1]."
+    assert [item["marker"] for item in result["invalid_citations"] if "marker" in item] == ["[F9]"]
+    assert [i["claim"] for i in result["invalid_citations"] if "claim" in i] == [
+        "Afirmación inventada [F9]."
+    ]
 
 
 def test_citation_that_fails_verification_is_dropped(index, monkeypatch):
@@ -102,7 +104,8 @@ def test_citation_that_fails_verification_is_dropped(index, monkeypatch):
     monkeypatch.setattr(answer, "quote_citation", tampered)
     result = answer_question(index, "¿Qué conserva la biblioteca?", year=1)
     assert result["status"] == "no_evidence" and result["citations"] == []
-    [invalid] = result["invalid_citations"]
+    [invalid, dropped] = result["invalid_citations"]
+    assert "claim" in dropped
     assert invalid["quote"] == "texto inventado" and "no coincide" in invalid["reason"]
 
 
@@ -137,7 +140,7 @@ def test_real_provider_reads_key_from_env(monkeypatch):
     assert sent["url"] == "http://127.0.0.1:9/v1/chat/completions"
     assert sent["auth"] == "Bearer clave-de-prueba"
     assert sent["body"]["model"] == "modelo" and sent["body"]["temperature"] == 0
-    assert sent["timeout"] == 60
+    assert sent["timeout"] == 100 and sent["body"]["max_tokens"] == 3000
     monkeypatch.setenv("ATENEO_LLM_TIMEOUT", "110")
     openai_compatible_provider("s", "u")
     assert sent["timeout"] == 110
@@ -238,9 +241,9 @@ def test_developed_drops_only_unverifiable_sentences(index, monkeypatch):
     dropped = [i["claim"] for i in result["invalid_citations"] if "claim" in i]
     assert dropped == ["Fue fundada en 1850 [F1].", "Presta tabletas [F9].", "Tiene 42 salas."]
     assert {i.get("marker") for i in result["invalid_citations"]} >= {"[F1]", "[F9]"}
-    # El modo breve sigue siendo estricto con la misma salida.
+    # El modo breve también descarta solo las oraciones sin verificar.
     brief = answer_question(index, question, lambda s, u: reply, year=1)
-    assert (brief["status"], brief["citations"]) == ("no_evidence", [])
+    assert brief["status"] == "answered" and brief["answer"] == result["answer"]
 
     # Una cita que falla la verificación elimina solo su oración.
     real = answer.quote_citation
