@@ -12,13 +12,14 @@ export function Logs() {
   const search = new URLSearchParams({ limit: '200' })
   if (query.level) search.set('level', query.level)
   if (query.q) search.set('q', query.q)
-  const { data: rows, error, loading, reload } = useApi<LogEntry[]>(`/admin/logs?${search}`)
+  const { data: rows, error, loading, reload, inflight } = useApi<LogEntry[]>(`/admin/logs?${search}`)
 
   useEffect(() => {
     if (!auto) return
-    const id = setInterval(reload, 10_000)
+    // Salta el ciclo con la pestaña oculta o una petición aún en vuelo.
+    const id = setInterval(() => { if (!document.hidden && !inflight.current) reload() }, 10_000)
     return () => clearInterval(id)
-  }, [auto, reload])
+  }, [auto, reload, inflight])
 
   function filter(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router'
 import { api, errorMessage, type Answer, type Citation, type Page, type QueryMode, type QueryRequest } from './api'
 import { CorpusOptions } from './CorpusOptions'
+import { citationRange } from './helpers'
 
 const pageName = (cita: Citation) => `p. ${cita.page_label ?? cita.page_number}`
 
@@ -184,7 +185,8 @@ function CitationViewer({ cita }: { cita: Citation }) {
   }
 
   const sameVersion = page?.version === cita.document_version
-  const matches = sameVersion && page.text.slice(cita.start, cita.end) === cita.quote
+  const range = sameVersion ? citationRange(page.text, cita) : null
+  const matches = !!range
 
   return (
     <div id="visor-cita" className="viewer">
@@ -210,9 +212,9 @@ function CitationViewer({ cita }: { cita: Citation }) {
           <div className="page" tabIndex={0} ref={pageRef} aria-label={`Texto de la página ${page.number}`}>
             {matches ? (
               <>
-                {page.text.slice(0, cita.start)}
+                {page.text.slice(0, range!.start)}
                 <mark ref={markRef}>{cita.quote}</mark>
-                {page.text.slice(cita.end)}
+                {page.text.slice(range!.end)}
               </>
             ) : page.text}
           </div>
