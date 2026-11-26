@@ -202,7 +202,7 @@ export function Feedback() {
       {answerId && <p className="note">Sobre la respuesta {answerId}</p>}
       {examId && <p className="note">Sobre el examen {examId}</p>}
       <form className="card" onSubmit={submit}>
-        <fieldset disabled={state === 'saving'}>
+        <fieldset disabled={state === 'saving'} onChange={() => setState((s) => (s === 'saved' ? 'idle' : s))}>
           <legend>Enviar feedback</legend>
           <label>Tipo
             <select value={kind} onChange={(event) => { setKind(event.target.value as FeedbackKind); setState('idle') }}>
@@ -222,7 +222,7 @@ export function Feedback() {
             </fieldset>
           )}
           <label>Comentario <textarea name="comment" rows={4} maxLength={2000} required={kind !== 'rating'} /></label>
-          <button type="submit">{state === 'saving' ? 'Enviando…' : 'Enviar feedback'}</button>
+          <button type="submit" disabled={state === 'saved'}>{state === 'saving' ? 'Enviando…' : 'Enviar feedback'}</button>
         </fieldset>
       </form>
       {state === 'saved' && <p role="status" className="status ok">Tu feedback se guardó.</p>}

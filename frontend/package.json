@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "lint": "eslint .",
+    "test": "esbuild src/helpers.test.ts --bundle --platform=node --format=esm --log-level=warning --outfile=node_modules/.cache/helpers.test.mjs && node node_modules/.cache/helpers.test.mjs",
     "typecheck": "tsc --noEmit",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1"

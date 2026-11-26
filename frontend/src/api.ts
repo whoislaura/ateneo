@@ -142,6 +142,12 @@ export function setToken(value: string | null) {
 }
 
 let onUnauthorized: () => void = () => {}
+let onForbidden: () => void = () => {}
+
+/** Se llama ante un 403 (el rol pudo cambiar en el servidor); el manejador revalida la sesión. */
+export function setForbiddenHandler(handler: () => void) {
+  onForbidden = handler
+}
 
 /** Se llama cuando una petición con token recibe 401 (sesión caducada o revocada). */
 export function setUnauthorizedHandler(handler: () => void) {
@@ -172,6 +178,8 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     setToken(null)
     onUnauthorized()
   }
+  // /auth/me queda fuera: el manejador lo llama y un 403 ahí provocaría un bucle.
+  if (response.status === 403 && sentToken && path !== '/auth/me') onForbidden()
   throw new ApiError(response.status, code, message)
 }
 
@@ -182,6 +190,8 @@ export function errorMessage(err: unknown): string {
   if (err.status === 403) return 'Tu rol no tiene permiso para esta acción.'
   if (err.status === 404) return 'El recurso solicitado no existe o ya no está disponible.'
   if (err.status === 422) return 'Revisa los datos: hay campos no válidos.'
+  // Sin cuerpo JSON del contrato (code por defecto): lo respondió el proxy mientras la API arranca o tarda.
+  if ([502, 503, 504].includes(err.status) && err.code === 'http_error') return 'El servidor tardó demasiado o se está iniciando; inténtalo de nuevo en un minuto.'
   if (err.status === 501) return 'Esta función aún no está disponible en el servidor.'
   return err.message
 }

@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Navigate, NavLink, Outlet, Route, Routes, useLocation } from 'react-router'
 import HealthStatus from './HealthStatus'
-import { api, ApiError, hasToken, roleLabels, setToken, setUnauthorizedHandler, type Role, type TokenResponse, type User } from './api'
+import { api, ApiError, hasToken, roleLabels, setForbiddenHandler, setToken, setUnauthorizedHandler, type Role, type TokenResponse, type User } from './api'
 import { Consulta } from './consulta'
 import { Corpus } from './corpus'
 import { Dashboard } from './dashboard'
 import { Generacion } from './generacion'
 import { Historial } from './historial'
+import { intendedPath } from './helpers'
 import { Examen, Feedback } from './screens'
 
 const STUDY: Role[] = ['student', 'teacher']
@@ -35,22 +36,39 @@ export default function App() {
   // undefined: comprobando el token guardado con /auth/me; null: sin sesión.
   const [user, setUser] = useState<User | null | undefined>(() => (hasToken() ? undefined : null))
   const [expired, setExpired] = useState(false)
+  const [checkFailed, setCheckFailed] = useState(false)
+  const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
     setUnauthorizedHandler(() => {
       setExpired(true)
       setUser(null)
     })
+    // Ante un 403 el rol pudo cambiar: revalida /auth/me (que no dispara este manejador) y ajusta el menú.
+    let checking = false
+    setForbiddenHandler(() => {
+      if (checking) return
+      checking = true
+      api<User>('/auth/me')
+        .then((me) => setUser((prev) => (prev && prev.role !== me.role ? me : prev)))
+        .catch(() => {})
+        .finally(() => { checking = false })
+    })
+  }, [])
+
+  useEffect(() => {
     if (!hasToken()) return
     let active = true
     api<User>('/auth/me')
       .then((me) => active && setUser(me))
-      // 401 ya pasa por el manejador; otros fallos (red, 5xx) obligan a entrar de nuevo.
-      .catch(() => active && setUser(null))
+      // 401 ya pasa por el manejador; otros fallos (red, 5xx) no cierran la sesión: se ofrece reintentar.
+      .catch((err: unknown) => {
+        if (active && !(err instanceof ApiError && err.status === 401)) setCheckFailed(true)
+      })
     return () => {
       active = false
     }
-  }, [])
+  }, [attempt])
 
   async function logout() {
     try {
@@ -62,6 +80,15 @@ export default function App() {
       setExpired(false)
       setUser(null)
     }
+  }
+
+  if (user === undefined && checkFailed) {
+    return (
+      <main className="boot">
+        <p role="alert" className="status error">No se pudo comprobar la sesión. Inténtalo de nuevo.</p>
+        <button type="button" onClick={() => { setCheckFailed(false); setAttempt((n) => n + 1) }}>Reintentar</button>
+      </main>
+    )
   }
 
   if (user === undefined) {
@@ -78,7 +105,7 @@ export default function App() {
     <Routes>
       <Route
         path="/login"
-        element={user ? <ReturnToIntended /> : <Login expired={expired} onLogin={(next) => { setExpired(false); setUser(next) }} />}
+        element={user ? <ReturnToIntended allowed={allowed} /> : <Login expired={expired} onLogin={(next) => { setExpired(false); setUser(next) }} />}
       />
       <Route element={user ? <Layout user={user} allowed={allowed} onLogout={logout} /> : <RedirectToLogin />}>
         <Route index element={<Navigate to={`/${allowed[0]?.path ?? 'feedback'}`} replace />} />
@@ -101,9 +128,10 @@ function RedirectToLogin() {
 }
 
 // Tras entrar, vuelve a la ruta que pidió el usuario antes de ser redirigido al login.
-function ReturnToIntended() {
+function ReturnToIntended({ allowed }: { allowed: typeof screens }) {
   const location = useLocation()
-  return <Navigate to={(location.state as { from?: string } | null)?.from ?? '/'} replace />
+  const from = (location.state as { from?: string } | null)?.from
+  return <Navigate to={intendedPath(from, allowed.map((screen) => screen.path))} replace />
 }
 
 function Login({ expired, onLogin }: { expired: boolean; onLogin: (user: User) => void }) {
