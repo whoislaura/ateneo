@@ -5,6 +5,7 @@ from datetime import datetime
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
+    DDL,
     CheckConstraint,
     DateTime,
     Enum,
@@ -16,6 +17,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    event,
     func,
     true,
 )
@@ -189,6 +191,16 @@ class Chunk(Base):
     text: Mapped[str] = mapped_column(Text)
     # shortcut: sin dimensión ni índice ANN hasta elegir el modelo de embeddings (AT-14).
     embedding: Mapped[list[float] | None] = mapped_column(Vector())
+
+
+# create_all (tests) no pasa por la migración 0004: crea lo que necesita ix_chunks_text_fts.
+for _ddl in (
+    "CREATE EXTENSION IF NOT EXISTS unaccent WITH SCHEMA public",
+    "CREATE OR REPLACE FUNCTION public.ateneo_unaccent(text) RETURNS text "
+    "LANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT "
+    "AS $$ SELECT public.unaccent('public.unaccent'::regdictionary, $1) $$",
+):
+    event.listen(Chunk.__table__, "before_create", DDL(_ddl).execute_if(dialect="postgresql"))
 
 
 class Answer(Base):
