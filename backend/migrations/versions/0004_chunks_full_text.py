@@ -23,7 +23,7 @@ depends_on: str | Sequence[str] | None = None
 def upgrade() -> None:
     op.execute("CREATE EXTENSION IF NOT EXISTS unaccent WITH SCHEMA public")
     op.execute(
-        "CREATE FUNCTION public.ateneo_unaccent(text) RETURNS text "
+        "CREATE OR REPLACE FUNCTION public.ateneo_unaccent(text) RETURNS text "
         "LANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT "
         "AS $$ SELECT public.unaccent('public.unaccent'::regdictionary, $1) $$"
     )
