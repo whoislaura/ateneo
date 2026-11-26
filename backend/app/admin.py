@@ -98,30 +98,32 @@ def stats(db: Db) -> AdminStats:
         select(Answer.kind, Answer.status, func.count()).group_by(Answer.kind, Answer.status)
     ).all()
 
-    # Días UTC de hace 6 días a hoy; se agrupan en Python para no depender del dialecto SQL.
+    # Días UTC de hace 6 días a hoy. SQLite guarda las fechas sin zona (ya en UTC).
     today = datetime.now(UTC).date()
     days = {
-        today - timedelta(days=n): {"queries": 0, "generations": 0, "exams": 0}
+        (today - timedelta(days=n)).isoformat(): {"queries": 0, "generations": 0, "exams": 0}
         for n in range(6, -1, -1)
     }
-    since = datetime.combine(min(days), time(), UTC)
-    recent = [
-        (created, "queries" if kind == AnswerKind.QUERY else "generations")
-        for kind, created in db.execute(
-            select(Answer.kind, Answer.created_at).where(Answer.created_at >= since)
-        )
-    ]
-    recent += [
-        (created, "exams")
-        for created in db.scalars(select(Exam.created_at).where(Exam.created_at >= since))
-    ]
-    for created, field in recent:
-        # SQLite devuelve fechas sin zona (en UTC); PostgreSQL, con zona.
-        day = (
-            created.replace(tzinfo=UTC) if created.tzinfo is None else created.astimezone(UTC)
-        ).date()
-        if day in days:
-            days[day][field] += 1
+    since = datetime.combine(today - timedelta(days=6), time(), UTC)
+
+    def utc_day(column):
+        if db.get_bind().dialect.name == "sqlite":
+            return func.date(column)
+        return func.date(func.timezone("UTC", column))
+
+    for model, kind in ((Answer, Answer.kind), (Exam, None)):
+        day = utc_day(model.created_at)
+        columns = (day, kind, func.count()) if kind is not None else (day, func.count())
+        for day_value, *rest in db.execute(
+            select(*columns).where(model.created_at >= since).group_by(*columns[:-1])
+        ):
+            field = (
+                "exams"
+                if kind is None
+                else ("queries" if rest[0] == AnswerKind.QUERY else "generations")
+            )
+            if (key := str(day_value)) in days:
+                days[key][field] += rest[-1]
 
     return AdminStats(
         users=UserStats(total=sum(by_role.values()), active=active, by_role=by_role),
