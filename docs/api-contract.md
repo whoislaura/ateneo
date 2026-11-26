@@ -67,10 +67,12 @@ Cada usuario tiene un único rol. Sin sesión válida: 401. Sin permiso: 403. Re
 | `GET /history` | CU-04 | AT-11 | Estudiante, Profesor | `HistoryEntryOut[]` de consultas y generaciones propias, más recientes primero. `limit` de 1 a 100 (20 por defecto), `offset` desde 0 |
 | `DELETE /history/{entry_id}` | CU-04 | AT-11 | Autor | 204; borra la consulta o generación y su respuesta guardada |
 | `DELETE /history` | CU-04 | AT-11 | Autor | 204; borra todas sus consultas y generaciones con sus respuestas |
-| `POST /exams` | CU-06 | AT-27 | Estudiante, Profesor | 201 `ExamOut` sin respuestas. 422 si el corpus no permite generar la cantidad solicitada |
+| `POST /exams` | CU-06 | AT-27 | Estudiante, Profesor | 201 `ExamOut` sin respuestas. 422 si el corpus no permite generar la cantidad solicitada con citas verificables. 503 si falla el proveedor de IA |
 | `GET /exams` | CU-06 | AT-27 | Estudiante, Profesor | `ExamOut[]` propios |
 | `GET /exams/{exam_id}` | CU-06 | AT-27 | Autor | `ExamOut` |
 | `GET /exams/{exam_id}/answers` | CU-06, CU-05 | AT-27 | Autor | `ExamAnswerOut[]` con citas |
+| `GET /exams/{exam_id}/pdf` | CU-06 | | Autor | `application/pdf`: examen para el estudiante, sin soluciones |
+| `GET /exams/{exam_id}/answers/pdf` | CU-06, CU-05 | | Autor | `application/pdf`: clave de corrección con soluciones, puntuación y citas |
 | `POST /feedback` | CU-10 | AT-28 | Todos | 201 `FeedbackOut`. 404 si la referencia a una respuesta o examen no existe o pertenece a otro usuario |
 | `GET /admin/stats` | — | #29 | Administrador | `AdminStats` |
 | `GET /admin/users` | — | #29 | Administrador | `AdminUserOut[]`; filtros `q`, `role`, `limit`, `offset` |
@@ -101,7 +103,7 @@ Implementado en `backend/app/corpus.py`; las rutas de `api.py` solo lo invocan.
 
 `shortcut:` el PDF se procesa de forma síncrona y en memoria, y Starlette recibe el cuerpo entero antes de comprobar el límite; Nginx corta en 25 MB con `client_max_body_size` (ver [despliegue](deployment.md#límites-de-subida)). Basta para el tamaño del corpus del MVP; pasar a una cola de trabajos (respuesta 202 y estado `processing`) cuando las subidas tarden más que el timeout del proxy o se usen embeddings remotos con documentos grandes.
 
-`POST /generations` recibe `format` (`summary`, `outline`, `table`, `diagram`) y `prompt`; el contenido se devuelve como texto estructurado en `content` (ver [Generación](#generación-cu-02-at-17)). `POST /exams` recibe año, asignatura, tema opcional, `question_count` (1–50) y `difficulty` (`easy`, `medium`, `hard`). `POST /feedback` recibe `kind`: `rating` exige `rating` de 1 a 5; `error` y `suggestion` exigen `comment`. `answer_id` y `exam_id` vinculan opcionalmente el feedback.
+`POST /generations` recibe `format` (`summary`, `outline`, `table`, `diagram`) y `prompt`; el contenido se devuelve como texto estructurado en `content` (ver [Generación](#generación-cu-02-at-17)). `POST /exams` recibe año, asignatura, tema opcional, `question_count` (1–50), `difficulty` (`easy`, `medium`, `hard`) y `types` opcional (lista no vacía de `multiple_choice`, `true_false`, `development`, `case`; por defecto, examen mixto). `POST /feedback` recibe `kind`: `rating` exige `rating` de 1 a 5; `error` y `suggestion` exigen `comment`. `answer_id` y `exam_id` vinculan opcionalmente el feedback.
 
 ## Administración
 
@@ -201,9 +203,11 @@ La estructura se comprueba con `app.rag.generate.well_formed` en el RAG y tras l
 
 ### Exámenes y feedback (CU-06 y CU-10)
 
-El examen incluye ejercicios de completar texto de páginas del corpus vigente, filtradas por año, asignatura y tema opcional. Las dificultades baja, media y alta ocultan uno, dos o tres términos relevantes. Cada solución conserva una cita exacta con la versión de la página y sus offsets. La creación guarda el examen, las soluciones, las citas y la entrada de actividad en la misma transacción.
+El examen es mixto y lo genera la IA con el material vigente de la clasificación pedida (año, asignatura y tema opcional). `question_count` es el número de preguntas; `types` limita los tipos (por defecto los cuatro). El reparto, con al menos un caso práctico si hay dos o más preguntas, se ordena como un examen real: test (`multiple_choice`, cuatro opciones y una correcta), verdadero o falso con justificación (`true_false`), desarrollo (`development`) y caso práctico (`case`: supuesto de hecho con varias preguntas `a)`, `b)`…). Las dificultades baja, media y alta se indican al modelo. Cada pregunta lleva `kind`, `statement`, `options` (solo test, si no `null`), `points` (la suma de todo el examen es 10) y el examen `duration_minutes` y `total_points`. Los exámenes anteriores, de completar fragmento, se leen con `kind` `completion`, 1 punto por pregunta y 30 minutos.
 
-Las soluciones se consultan en `/exams/{exam_id}/answers` con la cuenta que creó el examen. La práctica es de autocorrección. El feedback admite valoraciones, reportes de error y sugerencias, con referencias opcionales a recursos propios.
+Una sola llamada al proveedor devuelve el JSON de todas las preguntas (varias llamadas por examen superarían los 120 s del proxy). La salida se valida: JSON inválido, preguntas mal formadas (p. ej. un test sin cuatro opciones distintas) o repetidas se descartan. La solución de cada pregunta se verifica como una respuesta de CU-01: cada línea lleva una marca `[Fn]` que se resuelve con `cite_reply` en una cita exacta de la página (versión y offsets) y las marcas se renumeran `[1]..[k]` por pregunta. Una pregunta cuya solución no se pueda citar se descarta; si faltan preguntas hay un único reintento, solo por las que faltan y solo si la primera llamada tardó menos de 45 s. Si aun así no se alcanza `question_count`, la respuesta es 422 («El corpus vigente permite N preguntas…») y no se guarda nada. El `criteria` (criterio de corrección) lo redacta el modelo sin citas y puntúa las ideas del modelo de respuesta, que sí está citado. Con `ATENEO_LLM_PROVIDER=fake` el generador es determinista y produce una pregunta válida de cada tipo con oraciones del corpus. La creación guarda el examen, las preguntas, las citas y la entrada de actividad en la misma transacción.
+
+Las soluciones se consultan en `/exams/{exam_id}/answers` (`answer`, `criteria` y citas) con la cuenta que creó el examen. `GET /exams/{exam_id}/pdf` descarga el examen en A4 para el estudiante: cabecera con universidad, facultad y carrera, asignatura, año, tema, fecha, duración, nombre y grupo a rellenar, instrucciones generales, preguntas numeradas con su puntuación y total, casillas en las de test y verdadero o falso, líneas para responder a las de desarrollo y al caso, y pie con «Página n de N». `GET /exams/{exam_id}/answers/pdf` descarga la clave (`CLAVE DE CORRECCIÓN`) con solución, criterio, puntuación y fuentes (documento y página). Ambos usan el mismo control de acceso que el examen (404 si es de otro usuario) y devuelven `Content-Disposition: attachment`. La práctica es de autocorrección. El feedback admite valoraciones, reportes de error y sugerencias, con referencias opcionales a recursos propios.
 
 ## Modelo de datos
 
@@ -217,7 +221,7 @@ PostgreSQL 17 con pgvector. Las tablas se crean exclusivamente mediante Alembic.
 | `chunks` | Fragmento de la ingestión: `id` (`chunk_id` determinista), documento, versión, página, `start_offset`/`end_offset`, texto y `embedding` (pgvector, nulo hasta AT-14). |
 | `answers` | Resultado de consulta o generación: autor, `kind` (`query`/`summary`/`outline`/`table`/`diagram`), `status`, pregunta, filtros y contenido. |
 | `citations` | Copia verificable de cada cita, ligada a una respuesta o a una pregunta de examen (exactamente una). |
-| `exams`, `exam_questions` | Configuración del examen y preguntas ordenadas con su respuesta. |
+| `exams`, `exam_questions` | Configuración y duración del examen; preguntas ordenadas con `kind`, `options`, `points`, respuesta y `criteria` (migración 0006). |
 | `history_entries` | CU-04: fecha, autor, `action` y resumen, con enlace opcional a respuesta, examen o documento. |
 | `feedback` | Valoración (1–5), error o sugerencia, con autor y vínculo opcional a respuesta o examen. |
 

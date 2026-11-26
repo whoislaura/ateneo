@@ -9,6 +9,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     Enum,
+    Float,
     ForeignKey,
     ForeignKeyConstraint,
     Index,
@@ -79,6 +80,14 @@ class Difficulty(enum.StrEnum):
     EASY = "easy"
     MEDIUM = "medium"
     HARD = "hard"
+
+
+class QuestionKind(enum.StrEnum):
+    COMPLETION = "completion"  # exámenes antiguos: completar fragmento
+    DEVELOPMENT = "development"
+    CASE = "case"
+    MULTIPLE_CHOICE = "multiple_choice"
+    TRUE_FALSE = "true_false"
 
 
 class HistoryAction(enum.StrEnum):
@@ -239,20 +248,36 @@ class Exam(Base):
     topic: Mapped[str | None] = mapped_column(Text)
     difficulty: Mapped[Difficulty] = mapped_column(enum_type(Difficulty, "exam_difficulty"))
     question_count: Mapped[int] = mapped_column(SmallInteger)
+    duration_minutes: Mapped[int] = mapped_column(SmallInteger, server_default="30")
     created_at: Mapped[datetime] = created_at()
 
     questions: Mapped[list["ExamQuestion"]] = relationship(order_by="ExamQuestion.position")
 
+    @property
+    def total_points(self) -> float:
+        return round(sum(question.points for question in self.questions), 2)
+
 
 class ExamQuestion(Base):
     __tablename__ = "exam_questions"
-    __table_args__ = (UniqueConstraint("exam_id", "position"),)
+    __table_args__ = (
+        UniqueConstraint("exam_id", "position"),
+        CheckConstraint(
+            "kind IN ('completion', 'development', 'case', 'multiple_choice', 'true_false')",
+            name="ck_exam_questions_kind",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     exam_id: Mapped[int] = mapped_column(ForeignKey("exams.id", ondelete="CASCADE"))
     position: Mapped[int] = mapped_column(SmallInteger)
     statement: Mapped[str] = mapped_column(Text)
     answer: Mapped[str] = mapped_column(Text)
+    # Los exámenes anteriores a la 0006 son de completar fragmento, con 1 punto cada pregunta.
+    kind: Mapped[str] = mapped_column(String(20), server_default="completion")
+    options: Mapped[list | None] = mapped_column(JSONB)  # cuatro opciones de las de test
+    points: Mapped[float] = mapped_column(Float, default=1.0, server_default="1")
+    criteria: Mapped[str | None] = mapped_column(Text)
 
     citations: Mapped[list["Citation"]] = relationship(order_by="Citation.position")
 
