@@ -19,6 +19,7 @@ from app.query import setting
 from app.rag import vector
 from app.rag.index import document_report
 from app.rag.ingestion import DocumentMetadata, IngestionError, extract_pdf
+from app.rag.rotation import ProviderError
 from app.schemas import DocumentReplace, IngestionReport
 
 
@@ -95,7 +96,7 @@ def ingest(
             )
         except IntegrityError as exc:  # alta concurrente del mismo identificador
             raise HTTPException(status.HTTP_409_CONFLICT, "El documento ya existe.") from exc
-        except (ValueError, OSError) as exc:
+        except (ProviderError, OSError) as exc:
             raise HTTPException(
                 status.HTTP_503_SERVICE_UNAVAILABLE,
                 "El servicio de embeddings no está disponible.",

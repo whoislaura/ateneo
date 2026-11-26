@@ -17,6 +17,10 @@ log = logging.getLogger("ateneo.ai")
 _next: dict[str, int] = {}
 
 
+class ProviderError(ValueError):
+    """Respuesta inválida del proveedor de IA; la API la traduce a 503 (otros ValueError, a 500)."""
+
+
 def api_keys(prefix: str) -> list[str]:
     raw = os.environ.get(f"{prefix}_API_KEYS") or os.environ.get(f"{prefix}_API_KEY", "")
     return [key.strip() for key in raw.split(",") if key.strip()]

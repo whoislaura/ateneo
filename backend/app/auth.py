@@ -103,7 +103,7 @@ def client_ip(request: Request) -> str:
 
 
 class LoginLimiter:
-    """Cuenta logins fallidos por correo normalizado y por IP en ventanas fijas."""
+    """Cuenta logins fallidos por (correo normalizado, IP) y por IP en ventanas fijas."""
 
     # shortcut: memoria del proceso (se pierde al reiniciar y no se comparte entre procesos ni
     # réplicas); pasar a la base o a Redis si la API corre con varios workers o instancias.
@@ -115,7 +115,8 @@ class LoginLimiter:
     @staticmethod
     def _keys(email: str, ip: str) -> dict[str, int]:
         email = email.strip().lower()
-        return {f"email:{email}": LOGIN_MAX_ATTEMPTS, f"ip:{ip}": LOGIN_IP_MAX_ATTEMPTS}
+        # Con la IP en la clave, un tercero no bloquea la cuenta ajena desde otra IP.
+        return {f"email:{email}|{ip}": LOGIN_MAX_ATTEMPTS, f"ip:{ip}": LOGIN_IP_MAX_ATTEMPTS}
 
     def _current(self, key: str, now: float) -> tuple[float, int]:
         start, count = self.failures.get(key, (now, 0))
@@ -145,9 +146,9 @@ class LoginLimiter:
                 start, count = self._current(key, now)
                 self.failures[key] = (start, count + 1)
 
-    def succeed(self, email: str) -> None:
+    def succeed(self, email: str, ip: str) -> None:
         with self._lock:
-            self.failures.pop(f"email:{email.strip().lower()}", None)
+            self.failures.pop(f"email:{email.strip().lower()}|{ip}", None)
 
 
 login_limiter = LoginLimiter()

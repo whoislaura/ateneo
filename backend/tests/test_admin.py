@@ -2,7 +2,7 @@
 
 import json
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 
 import pytest
 from sqlalchemy import create_engine
@@ -381,3 +381,29 @@ def test_logs_show_recent_entries_without_secrets(client):
     assert len(client.get(f"{ADMIN}/logs", params={"limit": 1}, headers=admin).json()) == 1
     assert client.get(f"{ADMIN}/logs", params={"limit": 501}, headers=admin).status_code == 422
     assert client.get(f"{ADMIN}/logs", params={"level": "DEBUG"}, headers=admin).status_code == 422
+
+
+def test_stats_last_7_days_groups_in_sql_by_utc_day(client, factory):
+    midnight = datetime.combine(datetime.now(UTC).date(), time(), UTC)
+    with factory() as db:
+        for created, kind in (
+            (midnight - timedelta(seconds=1), AnswerKind.QUERY),  # ayer 23:59:59 UTC
+            (midnight - timedelta(seconds=2), AnswerKind.SUMMARY),
+            (midnight - timedelta(days=7, seconds=1), AnswerKind.QUERY),  # fuera de la ventana
+        ):
+            db.add(
+                Answer(
+                    user_id=user_id(factory, Role.STUDENT),
+                    kind=kind,
+                    status=AnswerStatus.NO_EVIDENCE,
+                    question="q",
+                    content="c",
+                    citations=[],
+                    created_at=created,
+                )
+            )
+        db.commit()
+    body = client.get(f"{ADMIN}/stats", headers=client.headers_for[Role.ADMIN]).json()
+    yesterday = (midnight - timedelta(days=1)).date().isoformat()
+    [day] = [d for d in body["activity"]["last_7_days"] if d["date"] == yesterday]
+    assert (day["queries"], day["generations"]) == (1, 1)

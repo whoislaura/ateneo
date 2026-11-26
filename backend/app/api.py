@@ -38,6 +38,7 @@ from app.models import (
     Role,
     User,
 )
+from app.rag.rotation import ProviderError
 from app.schemas import (
     AnswerOut,
     CitationOut,
@@ -113,7 +114,7 @@ def login(body: LoginRequest, request: Request, db: Annotated[Session, Depends(g
         login_limiter.fail(body.email, ip)
         # Mismo mensaje para correo inexistente, contraseña errónea o usuario inactivo.
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Correo o contraseña incorrectos.")
-    login_limiter.succeed(body.email)
+    login_limiter.succeed(body.email, ip)
     return TokenResponse(
         access_token=create_session(db, user),
         expires_in=int(TOKEN_TTL.total_seconds()),
@@ -181,7 +182,7 @@ def create_query(
     user_id = user.id  # el rollback previo a la llamada al LLM expira `user`
     try:
         result = query.ask(db, body.question, mode=body.mode, **filters)
-    except (ValueError, OSError) as exc:
+    except (ProviderError, OSError) as exc:
         raise ai_unavailable(exc, "El servicio de respuestas no está disponible.") from exc
     answer_status, content, valid = citations.validate(db, result)
     answer = Answer(
@@ -222,7 +223,7 @@ def create_generation(
     user_id = user.id  # el rollback previo a la llamada al LLM expira `user`
     try:
         result = generation.generate(db, body.format, body.prompt, **filters)
-    except (ValueError, OSError) as exc:
+    except (ProviderError, OSError) as exc:
         raise ai_unavailable(exc, "El servicio de generación no está disponible.") from exc
     answer_status, content, valid = citations.validate(db, result)
     # La salida final debe conservar la estructura pedida tras renumerar las citas.

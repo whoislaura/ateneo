@@ -59,6 +59,8 @@ Nginx acepta cuerpos de hasta 25 MB (`frontend/nginx.conf`); el backend corta en
 
 ### Límite de intentos de login
 
+El contador de cuenta se indexa por (correo, IP): quien falla 5 veces desde su IP bloquea solo ese par, no la cuenta para el resto (antes cualquiera podía bloquear 15 min la cuenta del admin). Esto exige que `ATENEO_TRUSTED_PROXY_HOPS` esté bien configurado: si la API ve una misma IP para todos (el proxy), vuelve el bloqueo compartido de la cuenta, y además el límite por IP pasa a ser global.
+
 Pasados los fallos permitidos, `POST /auth/login` responde 429 `too_many_requests` con `Retry-After` (ver [contrato](api-contract.md#autenticación-cu-00-at-08)). El límite por IP es más alto que el de cuenta porque un aula o una red institucional puede salir a internet con una sola IP. Los contadores viven en la memoria del proceso: se pierden al reiniciar la API y no se comparten entre réplicas (suficiente con un único proceso; con varios, mover a la base o a Redis).
 
 La IP del cliente sale de `X-Forwarded-For` solo si `ATENEO_TRUSTED_PROXY_HOPS` es mayor que 0. Cada proxy añade al final la dirección que le conectó; lo anterior lo escribe el cliente y puede ser falso. Con `N` proxies de confianza se toma la entrada `N` contando desde el final. Con 0 se usa la IP de la conexión TCP (uvicorn no reescribe la IP con cabeceras salvo que venga de `127.0.0.1`).
