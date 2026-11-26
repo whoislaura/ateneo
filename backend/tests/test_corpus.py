@@ -81,6 +81,8 @@ def factory(monkeypatch):
     event.listen(engine, "connect", lambda conn, _: conn.execute("PRAGMA foreign_keys=ON"))
     Base.metadata.create_all(engine)
     monkeypatch.setattr(vector, "search", fake_search)
+    # SQLite no tiene texto completo de PostgreSQL; la prueba cubre la API, no la recuperación.
+    monkeypatch.setenv("ATENEO_RETRIEVAL", "vector")
     for variable in ("ATENEO_LLM_PROVIDER", "ATENEO_EMBEDDER", "ATENEO_MAX_UPLOAD_MB"):
         monkeypatch.delenv(variable, raising=False)
     return sessionmaker(engine)

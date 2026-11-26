@@ -47,6 +47,7 @@ Compose construye `DATABASE_URL` con `POSTGRES_*` (por eso `POSTGRES_PASSWORD` s
 | `ATENEO_LLM_MODEL`, `ATENEO_EMBED_MODEL` | Modelos; obligatorios con `openai` |
 | `ATENEO_LLM_BASE_URL`, `ATENEO_EMBED_BASE_URL` | Por defecto `https://api.openai.com/v1` |
 | `ATENEO_EMBED_DIM`, `ATENEO_MAX_DISTANCE` | 256 y 0.5; ver [prototipo RAG](rag-prototype.md) |
+| `ATENEO_RETRIEVAL` | Recuperación en PostgreSQL: `hybrid` (defecto; texto completo y vector fusionados por RRF), `text` o `vector`. Ver [QA del RAG](qa-rag.md#recuperación-híbrida) |
 
 Tras cambiar `.env`: `docker compose up -d` (recrea la API).
 

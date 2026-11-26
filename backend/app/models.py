@@ -19,6 +19,9 @@ from sqlalchemy import (
     func,
     true,
 )
+from sqlalchemy import (
+    text as sql_text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -168,6 +171,12 @@ class Chunk(Base):
         CheckConstraint(
             "start_offset >= 0 AND end_offset > start_offset", name="ck_chunks_offsets"
         ),
+        # Texto completo (migración 0004, que crea `ateneo_unaccent`); solo PostgreSQL.
+        Index(
+            "ix_chunks_text_fts",
+            sql_text("to_tsvector('spanish'::regconfig, ateneo_unaccent(text))"),
+            postgresql_using="gin",
+        ).ddl_if(dialect="postgresql"),
     )
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)  # chunk_id de la ingestión

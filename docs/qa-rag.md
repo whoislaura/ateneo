@@ -38,6 +38,10 @@ uv run pytest -q
 
 `test_rag_answer.py` y, con `ATENEO_TEST_DATABASE_URL`, `test_rag_vector.py` ejecutan el mismo set por SQLite y por pgvector.
 
+## Recuperación híbrida
+
+Con PostgreSQL, `ATENEO_RETRIEVAL` elige cómo se recuperan los fragmentos: `hybrid` (defecto), `text` o `vector`. El texto completo usa `to_tsvector('spanish', ateneo_unaccent(text))` con el índice GIN de la migración 0004 (extensión `unaccent`; la función envoltorio es IMMUTABLE porque `unaccent` no lo es) y `ts_rank`; basta un término de la pregunta, como en FTS5. `hybrid` fusiona ambas listas por rangos recíprocos (RRF, k=60) y `score` pasa a ser la puntuación fusionada; el vector conserva su filtro `ATENEO_MAX_DISTANCE`. Motivo: con embeddings `fake`, «¿Cuántas especies forestales arbóreas protege la Ley Forestal cubana?» dejaba el fragmento «60 especies…» hacia el puesto 56 por coseno, fuera de los 5 (breve) o 16 (desarrollada) que llegan al modelo; `test_postgres_text_search_finds_literal_fragment_buried_by_vector_noise` lo reproduce. El índice SQLite y `python -m app.rag search` sin `--index` (solo vector) no cambian.
+
 ## Evaluación con cualquier proveedor
 
 Crear el índice de muestra (ver [ingestión](ingestion.md)) con los tres documentos y evaluar:
