@@ -26,6 +26,9 @@ services:
       # Fase 1: embeddings de prueba; cambiarlos obliga a resubir el corpus.
       - key: ATENEO_EMBEDDER
         value: fake
+      # Con embeddings fake el vector solo no encuentra citas literales; el texto completo sí.
+      - key: ATENEO_RETRIEVAL
+        value: hybrid
       - key: ATENEO_MAX_UPLOAD_MB
         value: "20"
 

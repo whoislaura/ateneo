@@ -16,7 +16,8 @@ from app.rag import vector
 from app.rag.__main__ import ingest_folder, main
 from app.rag.answer import NOT_FOUND, answer_question, evaluate, retrieve
 from app.rag.citations import db_sources
-from app.rag.ingestion import ChunkSettings, DocumentMetadata, extract_pdf
+from app.rag.ingestion import ChunkSettings, DocumentMetadata, Page, chunk_page, extract_pdf
+from app.rag.ingestion import Document as IngestedDocument
 from app.rag.sample import create_sample
 
 
@@ -81,6 +82,7 @@ def test_vector_neighbours_need_a_shared_term_or_a_close_distance(monkeypatch):
         return hits
 
     monkeypatch.setattr(vector, "search", search)
+    monkeypatch.setenv("ATENEO_RETRIEVAL", "vector")
     monkeypatch.setenv("ATENEO_MAX_DISTANCE", "0.5")
     kept = retrieve(
         "sesión",
@@ -111,6 +113,84 @@ def test_vector_neighbours_need_a_shared_term_or_a_close_distance(monkeypatch):
             topic=None,
             limit=5,
         )
+
+
+def test_hybrid_retrieval_fuses_text_and_vector_ranks(monkeypatch):
+    def passage(chunk_id, score):
+        return {"chunk_id": chunk_id, "text": "Ley forestal.", "score": score}
+
+    monkeypatch.setattr(vector, "search", lambda *a, **k: [passage("v1", 0.1), passage("t2", 0.2)])
+    monkeypatch.setattr(vector, "text_search", lambda *a, **k: [passage("t1", 3), passage("t2", 2)])
+    ask = partial(retrieve, "sesión", "ley forestal", vector.fake_embedder, year=None)
+    ask = partial(ask, subject=None, topic=None)
+    monkeypatch.delenv("ATENEO_RETRIEVAL", raising=False)
+    hits = ask(limit=2)
+    # t2 aparece en ambas listas y supera a los primeros de cada una.
+    assert [h["chunk_id"] for h in hits] == ["t2", "t1"]
+    assert hits[0]["score"] == pytest.approx(1 / 62 + 1 / 62)
+    monkeypatch.setenv("ATENEO_RETRIEVAL", "text")
+    assert [h["chunk_id"] for h in ask(limit=5)] == ["t1", "t2"]
+    monkeypatch.setenv("ATENEO_RETRIEVAL", "vector")
+    assert [h["chunk_id"] for h in ask(limit=5)] == ["v1", "t2"]
+    monkeypatch.setenv("ATENEO_RETRIEVAL", "bm25")
+    with pytest.raises(ValueError):
+        ask(limit=5)
+
+
+@pytest.mark.skipif(not TEST_DATABASE_URL, reason="Requiere ATENEO_TEST_DATABASE_URL")
+def test_postgres_text_search_finds_literal_fragment_buried_by_vector_noise(monkeypatch):
+    """Regresión: «60 especies» quedaba ~56.º por coseno con embeddings `fake` y no llegaba."""
+    monkeypatch.chdir(BACKEND)
+    monkeypatch.setenv("DATABASE_URL", TEST_DATABASE_URL)
+    question = "¿Cuántas especies forestales arbóreas protege la Ley Forestal cubana?"
+    target = "Se declaran protegidas 60 especies forestales arbóreas de la flora cubana."
+    [close] = vector.fake_embedder([question])
+    [far] = vector.fake_embedder(["Rúbrica de colores para evaluar exposiciones orales."])
+    pages = [
+        Page(n, None, f"Disposición {n}: régimen de tributos municipales.", "text")
+        for n in range(1, 61)
+    ]
+    pages[4] = Page(5, None, target, "text")
+    metadata = DocumentMetadata(
+        document_id="ley-forestal",
+        title="Ley Forestal",
+        year=1,
+        subject="Derecho",
+        topic="Ambiental",
+    )
+    chunks = [
+        c for p in pages for c in chunk_page(p, metadata.document_id, "v" * 64, ChunkSettings())
+    ]
+    document = IngestedDocument(metadata, "ley.pdf", "v" * 64, ChunkSettings(), pages, chunks)
+
+    def embedder(texts):
+        # Ruido casi idéntico a la pregunta; el fragmento correcto, lejos.
+        return [
+            far if t == target else close[:-1] + [close[-1] + 0.01 * i] for i, t in enumerate(texts)
+        ]
+
+    config = alembic_config()
+    command.upgrade(config, "head")
+    engine = create_engine(TEST_DATABASE_URL)
+    try:
+        with Session(engine) as session:
+            vector.store_document(session, document, embedder)
+            ask = partial(
+                retrieve, session, question, vector.fake_embedder, year=1, subject=None, topic=None
+            )
+            for mode in ("hybrid", "text"):
+                monkeypatch.setenv("ATENEO_RETRIEVAL", mode)
+                assert target in [h["text"] for h in ask(limit=5)], mode
+            monkeypatch.setenv("ATENEO_RETRIEVAL", "vector")
+            assert target not in [h["text"] for h in ask(limit=5)]
+            # Sin tildes ni mayúsculas, con el filtro y fuera del corpus.
+            [hit] = vector.text_search(session, "ARBOREAS", limit=5)
+            assert (hit["page_number"], hit["score"] > 0) == (5, True)
+            assert vector.text_search(session, "arbóreas", year=2) == []
+            assert vector.text_search(session, "usucapión") == []
+    finally:
+        engine.dispose()
+        command.downgrade(config, "base")
 
 
 def test_cli_without_index_requires_database_url(monkeypatch, capsys):

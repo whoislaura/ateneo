@@ -40,6 +40,7 @@ services:
       ATENEO_EMBED_BASE_URL: ${ATENEO_EMBED_BASE_URL:-https://api.openai.com/v1}
       ATENEO_EMBED_DIM: ${ATENEO_EMBED_DIM:-256}
       ATENEO_MAX_DISTANCE: ${ATENEO_MAX_DISTANCE:-0.5}
+      ATENEO_RETRIEVAL: ${ATENEO_RETRIEVAL:-hybrid}
     depends_on:
       db:
         condition: service_healthy

@@ -105,6 +105,8 @@ def factory(monkeypatch):
 
     # pgvector no existe en SQLite: se sustituye solo la recuperación, no el adaptador.
     monkeypatch.setattr(vector, "search", search)
+    # SQLite no tiene texto completo de PostgreSQL; la prueba cubre la API, no la recuperación.
+    monkeypatch.setenv("ATENEO_RETRIEVAL", "vector")
     monkeypatch.delenv("ATENEO_LLM_PROVIDER", raising=False)
     return factory
 

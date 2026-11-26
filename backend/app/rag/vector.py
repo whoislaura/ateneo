@@ -8,7 +8,7 @@ import unicodedata
 import urllib.request
 from collections.abc import Callable
 
-from sqlalchemy import delete, func, insert, select
+from sqlalchemy import delete, func, insert, literal_column, select
 from sqlalchemy.orm import Session
 
 from app.models import Chunk, DocumentStatus, PageStatus
@@ -144,27 +144,17 @@ def filter_key(value: str) -> str:
     return unicodedata.normalize("NFC", value).strip().lower()
 
 
-def search(
-    session: Session,
-    query: str,
-    embedder: Embedder,
-    *,
-    year: int | None = None,
-    subject: str | None = None,
-    topic: str | None = None,
-    limit: int = 5,
-) -> list[dict]:
-    """Fragmentos más cercanos por distancia coseno, con el mismo formato que el índice SQLite."""
+def check_search(year: int | None, limit: int, query: str) -> None:
     if year is not None and (type(year) is not int or year not in range(1, 5)):
         raise IngestionError("El año debe estar entre 1 y 4.")
     if type(limit) is not int or not 1 <= limit <= MAX_LIMIT:
         raise IngestionError(f"El límite debe estar entre 1 y {MAX_LIMIT}.")
     if len(query) > 1000:
         raise IngestionError("La consulta admite hasta 1000 caracteres.")
-    [vector] = embedder([query])
-    if not math.fsum(x * x for x in vector):
-        return []  # el coseno con un vector nulo no está definido
-    distance = Chunk.embedding.cosine_distance(vector).label("score")
+
+
+def select_chunks(score, *, year: int | None, subject: str | None, topic: str | None, limit: int):
+    """Columnas, joins y filtros comunes; mismo formato que el índice SQLite."""
     statement = (
         select(
             Chunk.id.label("chunk_id"),
@@ -180,19 +170,14 @@ def search(
             Chunk.start_offset.label("start"),
             Chunk.end_offset.label("end"),
             Chunk.text,
-            distance,
+            score.label("score"),
         )
         .join(DocumentRow, DocumentRow.id == Chunk.document_id)
         .join(
             PageRow,
             (PageRow.document_id == Chunk.document_id) & (PageRow.number == Chunk.page_number),
         )
-        .where(
-            DocumentRow.status != DocumentStatus.RETIRED,
-            # La columna no tiene dimensión fija; se ignoran vectores de otro modelo.
-            func.vector_dims(Chunk.embedding) == len(vector),
-        )
-        .order_by(distance, Chunk.id)
+        .where(DocumentRow.status != DocumentStatus.RETIRED)
         .limit(limit)
     )
     if year is not None:
@@ -200,4 +185,58 @@ def search(
     for column, value in ((DocumentRow.subject, subject), (DocumentRow.topic, topic)):
         if value is not None:
             statement = statement.where(func.lower(func.trim(column)) == filter_key(value))
+    return statement
+
+
+def search(
+    session: Session,
+    query: str,
+    embedder: Embedder,
+    *,
+    year: int | None = None,
+    subject: str | None = None,
+    topic: str | None = None,
+    limit: int = 5,
+) -> list[dict]:
+    """Fragmentos más cercanos por distancia coseno, con el mismo formato que el índice SQLite."""
+    check_search(year, limit, query)
+    [vector] = embedder([query])
+    if not math.fsum(x * x for x in vector):
+        return []  # el coseno con un vector nulo no está definido
+    distance = Chunk.embedding.cosine_distance(vector)
+    statement = (
+        select_chunks(distance, year=year, subject=subject, topic=topic, limit=limit)
+        # La columna no tiene dimensión fija; se ignoran vectores de otro modelo.
+        .where(func.vector_dims(Chunk.embedding) == len(vector))
+        .order_by(distance, Chunk.id)
+    )
+    return [dict(row) for row in session.execute(statement).mappings()]
+
+
+def text_search(
+    session: Session,
+    query: str,
+    *,
+    year: int | None = None,
+    subject: str | None = None,
+    topic: str | None = None,
+    limit: int = 5,
+) -> list[dict]:
+    """Texto completo en español sin tildes (índice de 0004); basta un término. `score`: ts_rank."""
+    check_search(year, limit, query)
+    terms = content_terms(query)
+    if not terms:
+        return []
+    # websearch_to_tsquery no falla con ninguna entrada; «or» une los términos como FTS5.
+    tsquery = func.websearch_to_tsquery(literal_column("'spanish'::regconfig"), " or ".join(terms))
+    # Misma expresión que el índice GIN de la migración 0004.
+    document = func.to_tsvector(
+        literal_column("'spanish'::regconfig"), func.ateneo_unaccent(Chunk.text)
+    )
+    rank = func.ts_rank(document, tsquery)
+    statement = (
+        select_chunks(rank, year=year, subject=subject, topic=topic, limit=limit)
+        .where(document.op("@@")(tsquery))
+        .order_by(rank.desc(), Chunk.id)
+    )
     return [dict(row) for row in session.execute(statement).mappings()]

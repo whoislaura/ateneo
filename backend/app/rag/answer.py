@@ -162,20 +162,34 @@ def retrieve(
     topic: str | None,
     limit: int,
 ) -> list[dict]:
-    """FTS5 con una ruta de índice; pgvector con una sesión, descartando vecinos sin relación."""
+    """FTS5 con una ruta de índice; con una sesión, texto, vector o ambos (ATENEO_RETRIEVAL)."""
     terms = content_terms(question)
     if not terms:
         return []
     filters = {"year": year, "subject": subject, "topic": topic, "limit": limit}
     if isinstance(source, Path):
         return index.search(source, " ".join(terms), **filters)
-    # Híbrido simple: se acepta un vecino si comparte un término con la pregunta o está muy cerca.
-    wanted, threshold = set(terms), vector.max_distance()
-    return [
-        p
-        for p in vector.search(source, question, embedder, **filters)
-        if p["score"] <= threshold or wanted & set(content_terms(p["text"]))
-    ]
+    mode = os.environ.get("ATENEO_RETRIEVAL", "hybrid")
+    if mode not in ("text", "hybrid", "vector"):
+        raise ValueError("ATENEO_RETRIEVAL debe ser text, hybrid o vector.")
+    neighbours = []
+    if mode != "text":
+        # Se acepta un vecino si comparte un término con la pregunta o está muy cerca.
+        wanted, threshold = set(terms), vector.max_distance()
+        neighbours = [
+            p
+            for p in vector.search(source, question, embedder, **filters)
+            if p["score"] <= threshold or wanted & set(content_terms(p["text"]))
+        ]
+        if mode == "vector":
+            return neighbours
+    # Fusión por rangos recíprocos (k=60); `score` pasa a ser la puntuación fusionada.
+    fused: dict[str, dict] = {}
+    for ranking in (vector.text_search(source, question, **filters), neighbours):
+        for rank, p in enumerate(ranking, 1):
+            entry = fused.setdefault(p["chunk_id"], p | {"score": 0.0})
+            entry["score"] += 1 / (60 + rank)
+    return sorted(fused.values(), key=lambda p: (-p["score"], p["chunk_id"]))[:limit]
 
 
 def retrieve_developed(
