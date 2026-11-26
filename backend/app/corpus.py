@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.models import Document, DocumentStatus, HistoryAction, HistoryEntry, Page, Role, User
 from app.query import setting
 from app.rag import vector
+from app.rag.index import document_report
 from app.rag.ingestion import DocumentMetadata, IngestionError, extract_pdf
 from app.schemas import DocumentReplace, IngestionReport
 
@@ -50,7 +51,8 @@ def ingest(
     """Extrae, reindexa en una transacción (`vector.store_document`) y registra el historial.
 
     La versión anterior se conserva si falla la extracción (422) o el proveedor de embeddings
-    (503). Un documento retirado vuelve a estar vigente al sustituirlo.
+    (503). Un documento retirado vuelve a estar vigente al sustituirlo. Sustituir con el mismo
+    PDF (mismo SHA-256) solo actualiza los metadatos: ni embeddings ni fragmentos nuevos.
     """
     data = read_pdf(form.file)
     metadata = {"title": form.title, "year": form.year, "subject": form.subject}
@@ -67,21 +69,37 @@ def ingest(
     filename = Path(form.file.filename or "documento.pdf").name
     document = dataclasses.replace(document, filename=filename)
     user_id = user.id
-    # store_document abre su propia transacción: se cierra la que abrió la autenticación.
-    db.commit()
-    try:
-        report = vector.store_document(
-            db,
-            document,
-            setting(vector.EMBEDDERS, "ATENEO_EMBEDDER"),
-            create_only=action == HistoryAction.DOCUMENT_UPLOAD,
-        )
-    except IntegrityError as exc:  # alta concurrente del mismo identificador
-        raise HTTPException(status.HTTP_409_CONFLICT, "El documento ya existe.") from exc
-    except (ValueError, OSError) as exc:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE, "El servicio de embeddings no está disponible."
-        ) from exc
+    report = document_report(document)
+    current = (
+        db.get(Document, document_id, with_for_update=True, populate_existing=True)
+        if action == HistoryAction.DOCUMENT_UPDATE
+        else None
+    )
+    if current is not None and (current.version, current.chunk_settings) == (
+        document.version,
+        report["chunk_settings"],
+    ):
+        # Mismo PDF: solo cambian los metadatos. Reindexar dejaría sin enlace las citas vigentes.
+        current.title, current.filename, current.year = form.title, filename, form.year
+        current.subject, current.topic = form.subject, form.topic
+        current.status = DocumentStatus(report["status"])  # reactiva un retirado
+    else:
+        # store_document abre su propia transacción: se cierra la que abrió la autenticación.
+        db.commit()
+        try:
+            report = vector.store_document(
+                db,
+                document,
+                setting(vector.EMBEDDERS, "ATENEO_EMBEDDER"),
+                create_only=action == HistoryAction.DOCUMENT_UPLOAD,
+            )
+        except IntegrityError as exc:  # alta concurrente del mismo identificador
+            raise HTTPException(status.HTTP_409_CONFLICT, "El documento ya existe.") from exc
+        except (ValueError, OSError) as exc:
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "El servicio de embeddings no está disponible.",
+            ) from exc
     db.get(Document, document_id).uploaded_by = user_id
     db.add(
         HistoryEntry(user_id=user_id, action=action, summary=form.title, document_id=document_id)
