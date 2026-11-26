@@ -303,6 +303,13 @@ def quote_citation(passage: dict, claim: str) -> dict:
     }
 
 
+def release_connection(source: Path | Session) -> None:
+    """Cierra la transacción de lectura antes de llamar al proveedor (hasta 100 s): sin esto
+    cada consulta lenta retiene una conexión del pool. La sesión abre otra al volver a usarse."""
+    if not isinstance(source, Path):
+        source.rollback()
+
+
 def answer_question(
     source: Path | Session,
     question: str,
@@ -334,6 +341,7 @@ def answer_question(
     if not passages:
         return result
     system = DEVELOPED_PROMPT if developed else SYSTEM_PROMPT
+    release_connection(source)
     # Las marcas [n] del contrato solo las pone el backend.
     reply = re.sub(r"\[\d+\]", "", provider(system, build_prompt(question, passages)))
     if developed:

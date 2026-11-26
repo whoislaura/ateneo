@@ -176,13 +176,14 @@ def create_query(
 ):
     """Estudiante, Profesor. Respuesta restringida al corpus con citas (CU-05)."""
     filters = body.model_dump(exclude={"question", "mode"})
+    user_id = user.id  # el rollback previo a la llamada al LLM expira `user`
     try:
         result = query.ask(db, body.question, mode=body.mode, **filters)
     except (ValueError, OSError) as exc:
         raise ai_unavailable(exc, "El servicio de respuestas no está disponible.") from exc
     answer_status, content, valid = citations.validate(db, result)
     answer = Answer(
-        user_id=user.id,
+        user_id=user_id,
         kind=AnswerKind.QUERY,
         status=answer_status,
         question=body.question,
@@ -194,7 +195,7 @@ def create_query(
     db.flush()
     db.add(
         HistoryEntry(
-            user_id=user.id, action=HistoryAction.QUERY, summary=body.question, answer_id=answer.id
+            user_id=user_id, action=HistoryAction.QUERY, summary=body.question, answer_id=answer.id
         )
     )
     db.commit()
@@ -216,6 +217,7 @@ def create_generation(
 ):
     """Estudiante, Profesor. Resumen, esquema, cuadro o diagrama en texto, con citas (CU-05)."""
     filters = body.model_dump(exclude={"format", "prompt"})
+    user_id = user.id  # el rollback previo a la llamada al LLM expira `user`
     try:
         result = generation.generate(db, body.format, body.prompt, **filters)
     except (ValueError, OSError) as exc:
@@ -225,7 +227,7 @@ def create_generation(
     if answer_status == AnswerStatus.ANSWERED and not generation.well_formed(body.format, content):
         answer_status, content, valid = AnswerStatus.NO_EVIDENCE, citations.NO_EVIDENCE, []
     answer = Answer(
-        user_id=user.id,
+        user_id=user_id,
         kind=AnswerKind(body.format),
         status=answer_status,
         question=body.prompt,
@@ -237,7 +239,7 @@ def create_generation(
     db.flush()
     db.add(
         HistoryEntry(
-            user_id=user.id,
+            user_id=user_id,
             action=HistoryAction.GENERATION,
             summary=body.prompt,
             answer_id=answer.id,
