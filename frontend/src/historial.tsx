@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router'
 import { api, errorMessage, type HistoryEntry } from './api'
 
 const pageSize = 20
 const date = new Intl.DateTimeFormat('es-CU', { dateStyle: 'short', timeStyle: 'short' })
-const labels = { query: 'Consulta', generation: 'Generación' } as const
+const labels = { query: 'Consulta', generation: 'Generación', conversation: 'Conversación' } as const
 
 type Confirmation = { kind: 'one'; entry: HistoryEntry } | { kind: 'all' }
 
@@ -105,7 +106,7 @@ export function Historial() {
         </>
       )}
       {entries?.length === 0 && (
-        <p role="status" className="empty">{offset === 0 ? 'Todavía no tienes consultas ni generaciones.' : 'No hay más entradas.'}</p>
+        <p role="status" className="empty">{offset === 0 ? 'Todavía no tienes consultas, conversaciones ni generaciones.' : 'No hay más entradas.'}</p>
       )}
       {entries && entries.length > 0 && (
         <div className="table-wrap" role="region" aria-label="Actividad reciente" tabIndex={0}>
@@ -124,6 +125,10 @@ export function Historial() {
                   <td><span className={`badge ${entry.action}`}>{labels[entry.action]}</span></td>
                   <td>{entry.summary}</td>
                   <td>
+                    <div className="actions">
+                    {entry.conversation_id !== null && (
+                      <Link className="button-link" to={`/consulta?c=${entry.conversation_id}`} aria-label={`Abrir conversación: ${entry.summary}`}>Abrir</Link>
+                    )}
                     <button
                       type="button"
                       className="secondary"
@@ -133,6 +138,7 @@ export function Historial() {
                     >
                       Eliminar
                     </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -160,8 +166,8 @@ export function Historial() {
             </h2>
             <p id="history-confirm-text">
               {confirm.kind === 'all'
-                ? 'Se borrarán todas tus consultas y generaciones con sus respuestas. Esta acción no se puede deshacer.'
-                : `Se borrarán «${confirm.entry.summary}» y su respuesta. Esta acción no se puede deshacer.`}
+                ? 'Se borrarán todas tus consultas, conversaciones y generaciones con sus respuestas. Esta acción no se puede deshacer.'
+                : `Se borrarán «${confirm.entry.summary}» y su respuesta o mensajes. Esta acción no se puede deshacer.`}
             </p>
             <div className="actions">
               <button type="button" className="secondary" autoFocus disabled={busy} onClick={() => setConfirm(null)}>

@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { ApiError, errorMessage } from './api.ts'
-import { citationRange, intendedPath } from './helpers.ts'
+import { citationRange, intendedPath, isSendKey } from './helpers.ts'
 
 test('F2: 502/503/504 sin JSON del contrato dan mensaje claro; 503 del backend se respeta', () => {
   for (const status of [502, 503, 504]) assert.match(errorMessage(new ApiError(status, 'http_error', 'x')), /se está iniciando/)
@@ -24,4 +24,11 @@ test('F5: offsets en code points con caracteres fuera del BMP', () => {
   // offsets que no cuadran: recurre a indexOf
   assert.deepEqual(citationRange(text, { start: 0, end: 2, quote }), { start: 5, end: 11 })
   assert.equal(citationRange(text, { start: 0, end: 2, quote: 'nada' }), null)
+})
+
+test('chat: Enter envía, Shift+Enter y la composición de IME no', () => {
+  assert.equal(isSendKey({ key: 'Enter', shiftKey: false, isComposing: false }), true)
+  assert.equal(isSendKey({ key: 'Enter', shiftKey: true, isComposing: false }), false)
+  assert.equal(isSendKey({ key: 'Enter', shiftKey: false, isComposing: true }), false)
+  assert.equal(isSendKey({ key: 'a', shiftKey: false, isComposing: false }), false)
 })

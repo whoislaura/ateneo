@@ -29,7 +29,7 @@ En desarrollo Vite redirige `/api` a `http://127.0.0.1:8000`; en producción lo 
 | `/login` | Correo y contraseña | CU-00 |
 | `/` | Redirige a la primera pantalla permitida del rol (el Panel para el administrador) | — |
 | `/dashboard` | Panel de administración con pestañas (`?tab=`) | Admin |
-| `/consulta` | Pregunta por año/asignatura/tema; respuesta con citas | CU-01, CU-05 |
+| `/consulta` | Chat con memoria: conversaciones, hilo de burbujas y citas (`?c=ID` abre una conversación) | CU-01, CU-05 |
 | `/generacion` | Resumen, esquema, cuadro o diagrama de texto | CU-02, CU-05 |
 | `/corpus` | Subir, actualizar y retirar material | CU-03 |
 | `/historial` | Actividad propia | CU-04 |
@@ -117,33 +117,24 @@ Contraseña         [____________]
 [Estado de conexión]
 ```
 
-### Consulta (CU-01, CU-05)
+### Consulta (CU-01, CU-05): chat con memoria
 
 ```
 Consulta
-Tipo de respuesta (•) Breve ( ) Desarrollada     ← radios con estilo de chips
-Respuesta corta y directa.                       ← ayuda según el tipo
-Año [Todos ▾]  Asignatura [____]  Tema [____]   (opcionales)
-Pregunta [______________________________]
-[Consultar]
-«Consultando el corpus…»            ← role="status" mientras carga
-                                      (desarrollada: aviso de que puede tardar)
--- Respuesta -------------------------------------------------
-Texto con marcas en línea [1] … [2]  ← cada marca abre su cita
-Fuentes
-  [1] Documento, p. 12
-  [2] Documento, p. 15
-  + Cita [1] ---------------------------------------------+
-  | Documento  Título                                     |
-  | Versión    9b2e…  (SHA-256 abreviado)                 |
-  | Página     12 (impresa: xii)                          |
-  | > texto citado exacto                                 |
-  | [Ver en la página]                                    |
-  | …texto de la página con el fragmento ==resaltado==…   |
-  +-------------------------------------------------------+
++ Conversaciones ------+ Título de la conversación        [Borrar conversación]
+| [Nueva conversación] | +- role="log" aria-live="polite" ---------------------+
+| ¿Qué es la usucap…   | |                      [ burbuja del usuario        ] |
+| ¿Plazo de la pre…    | | [ burbuja del asistente con marcas [1] [2]       ] |
+| [Ver más]            | |   Fuentes  [1] Documento, p. 12  → visor de citas  |
+|                      | | «Pensando…»  ← role="status" mientras espera       |
+|                      | | [ error ] [Reintentar]                             |
+|                      | +-----------------------------------------------------+
+|                      | > Filtros del corpus (opcionales): año, asignatura, tema
+|                      | Pregunta [______]   [Enviar]  Enter envía; Shift+Enter salta
++----------------------+
 ```
 
-`POST /queries` recibe `question`, `mode` y, si se rellenan, `year`, `subject` y `topic`. El selector «Tipo de respuesta» es un `fieldset.options` con dos radios (`Breve`, por defecto, y `Desarrollada`) y una ayuda enlazada con `aria-describedby`; con «Desarrollada» el mensaje de carga avisa de que puede tardar hasta un par de minutos. `AnswerText` (también usado en el detalle del Panel) renderiza `content` por líneas: `## Título` como `<h3>`, líneas `- …` seguidas como lista y el resto como párrafos; una respuesta breve es una sola línea y se ve igual que antes. El modo no se guarda, así que reabrir una respuesta la muestra con la misma estructura sin indicar el modo. Estados: vacío inicial, cargando, error (`role="alert"`, enlazado a la pregunta con `aria-describedby`), `answered` y `no_evidence` («Sin evidencia en el corpus», sin citas). Al llegar la respuesta o el error, el foco pasa al encabezado o al mensaje. Las sugerencias de asignatura y tema salen aún de `mock.ts`.
+Usa `POST /conversations` (primer mensaje) y `POST /conversations/{id}/messages`; la lista sale de `GET /conversations` (20 por página, «Ver más»), el hilo de `GET /conversations/{id}` y «Borrar conversación» (con `<dialog>` de confirmación) de `DELETE /conversations/{id}`. No hay selector de modo: el chat responde siempre en el modo `chat` del backend. La pregunta aparece enseguida como burbuja; si la petición falla, el error se muestra como mensaje del asistente (`role="alert"`) con un botón «Reintentar» que reenvía la misma pregunta con los filtros actuales. Mientras espera no se puede enviar, cambiar de conversación ni borrar. El hilo es `role="log"` con `aria-live="polite"`, la caja de entrada tiene `<label>` y la ayuda de teclado va enlazada con `aria-describedby`. Las burbujas del asistente reutilizan `AnswerText` (que renderiza `content` por líneas: `## Título` como `<h3>`, líneas `- …` como lista, el resto como párrafos), `Citations` y el visor de citas, con ids propios por mensaje (`useId`); abrir una cita cierra la de otro mensaje. El enlace «Enviar feedback de esta respuesta» usa el `answer_id` del mensaje. El Historial muestra las conversaciones con un botón «Abrir» (`/consulta?c=ID`).
 
 El visor muestra la copia guardada de la cita y, a petición, carga `GET /documents/{id}/pages/{n}`. Si la versión vigente coincide con `document_version` y `text[start:end] == quote`, resalta el fragmento con `<mark>` y lo desplaza a la vista; si la versión cambió o el texto no coincide, lo avisa y muestra la página sin resaltar.
 
