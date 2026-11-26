@@ -16,7 +16,7 @@ from app.models import Document as DocumentRow
 from app.models import Page as PageRow
 from app.rag.index import MAX_LIMIT, content_terms, document_report
 from app.rag.ingestion import Document, IngestionError
-from app.rag.rotation import rotating
+from app.rag.rotation import ProviderError, rotating
 
 Embedder = Callable[[list[str]], list[list[float]]]
 
@@ -75,9 +75,11 @@ def openai_compatible_embedder(texts: list[str], key: str | None = None) -> list
                 data = sorted(json.load(response)["data"], key=lambda item: item["index"])
                 vectors += [item["embedding"] for item in data]
             except (KeyError, TypeError):
-                raise ValueError("Respuesta inválida del proveedor") from None
+                raise ProviderError("Respuesta inválida del proveedor") from None
     if len(vectors) != len(texts) or any(len(v) != dimension for v in vectors):
-        raise ValueError(f"El modelo no devolvió {len(texts)} vectores de dimensión {dimension}.")
+        raise ProviderError(
+            f"El modelo no devolvió {len(texts)} vectores de dimensión {dimension}."
+        )
     return vectors
 
 

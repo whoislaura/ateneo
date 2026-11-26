@@ -195,7 +195,13 @@ def test_upload_validation_and_roles(client, factory, pdfs, monkeypatch):
     assert too_large.json()["error"]["code"] == "request_entity_too_large"
 
     monkeypatch.setenv("ATENEO_EMBEDDER", "openai")
-    monkeypatch.delenv("ATENEO_EMBED_API_KEY", raising=False)
+    monkeypatch.setenv("ATENEO_EMBED_API_KEY", "k")
+    monkeypatch.setenv("ATENEO_EMBED_MODEL", "m")
+
+    def down(*args, **kwargs):
+        raise OSError("sin red")
+
+    monkeypatch.setattr("app.rag.vector.urllib.request.urlopen", down)
     unavailable = upload(client, pdfs["muestra-a"])
     assert unavailable.status_code == 503
     assert unavailable.json()["error"]["code"] == "service_unavailable"

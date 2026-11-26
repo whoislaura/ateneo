@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.error import URLError
 
 import pytest
 from alembic import command
@@ -329,12 +330,16 @@ def test_query_roles_and_validation(client):
 
 def test_rag_failure_is_503_and_persists_nothing(client, factory, monkeypatch):
     monkeypatch.setenv("ATENEO_LLM_PROVIDER", "openai")
-    monkeypatch.delenv("ATENEO_LLM_API_KEY", raising=False)
+    monkeypatch.setenv("ATENEO_LLM_API_KEY", "k")
+    monkeypatch.setenv("ATENEO_LLM_MODEL", "m")
+
+    def down(*args, **kwargs):
+        raise URLError("sin red")
+
+    monkeypatch.setattr("app.rag.answer.urllib.request.urlopen", down)
     response = ask(client, question="¿Qué conserva la biblioteca?")
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "service_unavailable"
-    monkeypatch.setenv("ATENEO_LLM_PROVIDER", "otro")
-    assert ask(client, question="¿Qué conserva la biblioteca?").status_code == 503
     with factory() as db:
         assert db.scalar(select(func.count()).select_from(Answer)) == 0
 

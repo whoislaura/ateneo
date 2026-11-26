@@ -18,7 +18,7 @@ from app.models import Page as PageRow
 from app.rag import index, vector
 from app.rag.citations import db_sources, sqlite_sources, verify_citations
 from app.rag.index import content_terms
-from app.rag.rotation import rotating
+from app.rag.rotation import ProviderError, rotating
 
 NOT_FOUND = "No encontrado en el corpus."
 
@@ -145,7 +145,7 @@ def openai_compatible_provider(system: str, user: str, key: str | None = None) -
     except (KeyError, IndexError, TypeError):
         content = None
     if not isinstance(content, str):
-        raise ValueError("Respuesta inválida del proveedor")
+        raise ProviderError("Respuesta inválida del proveedor")
     return content
 
 
