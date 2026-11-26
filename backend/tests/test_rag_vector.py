@@ -121,9 +121,15 @@ def test_hybrid_retrieval_fuses_text_and_vector_ranks(monkeypatch):
 
     monkeypatch.setattr(vector, "search", lambda *a, **k: [passage("v1", 0.1), passage("t2", 0.2)])
     monkeypatch.setattr(vector, "text_search", lambda *a, **k: [passage("t1", 3), passage("t2", 2)])
-    ask = partial(retrieve, "sesión", "ley forestal", vector.fake_embedder, year=None)
+    def real_embedder(texts):  # cualquier embedder que no sea el de pruebas
+        return vector.fake_embedder(texts)
+
+    ask = partial(retrieve, "sesión", "ley forestal", real_embedder, year=None)
     ask = partial(ask, subject=None, topic=None)
     monkeypatch.delenv("ATENEO_RETRIEVAL", raising=False)
+    # Con embeddings `fake` la lista vectorial es ruido: hybrid usa solo el texto.
+    fake = partial(retrieve, "sesión", "ley forestal", vector.fake_embedder, year=None)
+    assert [h["chunk_id"] for h in fake(subject=None, topic=None, limit=5)] == ["t1", "t2"]
     hits = ask(limit=2)
     # t2 aparece en ambas listas y supera a los primeros de cada una.
     assert [h["chunk_id"] for h in hits] == ["t2", "t1"]

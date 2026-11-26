@@ -249,7 +249,8 @@ def retrieve(
     if mode not in ("text", "hybrid", "vector"):
         raise ValueError("ATENEO_RETRIEVAL debe ser text, hybrid o vector.")
     neighbours = []
-    if mode != "text":
+    # Con embeddings `fake` la lista vectorial es ruido: en hybrid solo cuenta el texto.
+    if mode == "vector" or (mode == "hybrid" and embedder is not vector.fake_embedder):
         # Se acepta un vecino si comparte un término con la pregunta o está muy cerca.
         wanted, threshold = set(terms), vector.max_distance()
         neighbours = [

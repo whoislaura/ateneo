@@ -8,7 +8,7 @@ import unicodedata
 import urllib.request
 from collections.abc import Callable
 
-from sqlalchemy import delete, func, insert, literal_column, select
+from sqlalchemy import case, delete, func, insert, literal_column, select
 from sqlalchemy.orm import Session
 
 from app.models import Chunk, DocumentStatus, PageStatus
@@ -227,21 +227,39 @@ def text_search(
     topic: str | None = None,
     limit: int = 5,
 ) -> list[dict]:
-    """Texto completo en español sin tildes (índice de 0004); basta un término. `score`: ts_rank."""
+    """Texto completo en español sin tildes (índice de 0004); basta un término.
+
+    `score` pondera cada término por su rareza en el corpus (IDF): «ley» o «especies», que se
+    repiten en cada página de un libro, pesan menos que «sanciones» o «200».
+    """
     check_search(year, limit, query)
-    terms = content_terms(query)
+    terms = list(dict.fromkeys(content_terms(query)))
     if not terms:
         return []
-    # websearch_to_tsquery no falla con ninguna entrada; «or» une los términos como FTS5.
-    tsquery = func.websearch_to_tsquery(literal_column("'spanish'::regconfig"), " or ".join(terms))
+    config = literal_column("'spanish'::regconfig")
     # Misma expresión que el índice GIN de la migración 0004.
-    document = func.to_tsvector(
-        literal_column("'spanish'::regconfig"), func.ateneo_unaccent(Chunk.text)
-    )
-    rank = func.ts_rank(document, tsquery)
+    document = func.to_tsvector(config, func.ateneo_unaccent(Chunk.text))
+    total = session.scalar(select(func.count()).select_from(Chunk)) or 0
+    # shortcut: IDF sin frecuencia del término (BM25 simplificado); pasar a BM25 si hace falta.
+    weights = []
+    for term in terms:
+        # websearch_to_tsquery no falla con ninguna entrada; una palabra vacía no casa nada.
+        tsquery = func.websearch_to_tsquery(config, term)
+        matches = session.scalar(
+            select(func.count()).select_from(Chunk).where(document.op("@@")(tsquery))
+        )
+        if matches:
+            weights.append(
+                case((document.op("@@")(tsquery), math.log(1 + total / matches)), else_=0.0)
+            )
+    if not weights:
+        return []
+    any_term = func.websearch_to_tsquery(config, " or ".join(terms))
+    # ts_rank solo desempata entre fragmentos con los mismos términos.
+    rank = sum(weights[1:], weights[0]) + func.ts_rank(document, any_term) / 100
     statement = (
         select_chunks(rank, year=year, subject=subject, topic=topic, limit=limit)
-        .where(document.op("@@")(tsquery))
+        .where(document.op("@@")(any_term))
         .order_by(rank.desc(), Chunk.id)
     )
     return [dict(row) for row in session.execute(statement).mappings()]
