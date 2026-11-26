@@ -24,7 +24,7 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -240,6 +240,20 @@ def set_password(db: Session, user: User, password: str) -> None:
     db.commit()
 
 
+def guard_last_admin(db: Session, target_id: int) -> None:
+    """Revalida la guarda con el bloqueo del dialecto: FOR UPDATE o escritura SQLite."""
+    admins = select(User.id).where(User.role == Role.ADMIN, User.is_active).order_by(User.id)
+    if db.get_bind().dialect.name == "sqlite":
+        db.execute(update(User).where(User.role == Role.ADMIN, User.is_active).values(id=User.id))
+    else:
+        admins = admins.with_for_update()
+    remaining = db.scalars(admins).all()
+    if not [admin_id for admin_id in remaining if admin_id != target_id]:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "Debe quedar al menos un administrador activo."
+        )
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="python -m app.auth")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -282,10 +296,14 @@ def main(argv: list[str] | None = None) -> None:
                 set_password(db, user, _ask_password(parser))
                 print(f"Contraseña actualizada: {user.email}.")
             elif args.command == "set-role":
+                if user.role == Role.ADMIN and user.is_active and Role(args.role) != Role.ADMIN:
+                    guard_last_admin(db, user.id)
                 user.role = Role(args.role)
                 db.commit()
                 print(f"Rol actualizado: {user.email} ({user.role.value}).")
             elif args.command == "deactivate":
+                if user.role == Role.ADMIN and user.is_active:
+                    guard_last_admin(db, user.id)
                 user.is_active = False
                 db.execute(delete(AuthSession).where(AuthSession.user_id == user.id))
                 db.commit()
@@ -296,6 +314,8 @@ def main(argv: list[str] | None = None) -> None:
                 print(f"Usuario reactivado: {user.email}.")
     except (ValueError, LookupError) as error:
         parser.exit(1, f"{error}\n")
+    except HTTPException as error:  # guarda del último administrador
+        parser.exit(1, f"{error.detail}\n")
     except IntegrityError:
         parser.exit(1, "Ya existe un usuario con ese correo.\n")
 

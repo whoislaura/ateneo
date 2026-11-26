@@ -19,7 +19,7 @@ Todo error de `/api/v1` usa la misma forma:
 {"error": {"code": "validation_error", "message": "Solicitud inválida.", "details": [...]}}
 ```
 
-`code` es estable y legible por máquina; `message` se puede mostrar; `details` es opcional (en 422 contiene la lista de campos inválidos de FastAPI con `loc`, `msg` y `type`). Códigos usados: 401 `unauthorized`, 403 `forbidden`, 404 `not_found`, 409 `conflict`, 413 `request_entity_too_large`, 422 `validation_error`, 429 `too_many_requests` (con cabecera `Retry-After` en segundos), 501 `not_implemented`, 503 `service_unavailable` (el proveedor de IA o de embeddings falló o está mal configurado; no se guarda nada). Cambiar esta forma exige una nueva versión de la API (`/api/v2`).
+`code` es estable y legible por máquina; `message` se puede mostrar; `details` es opcional (en 422 contiene la lista de campos inválidos de FastAPI con `loc`, `msg` y `type`; nunca el valor enviado). Los ids enteros de ruta, cuerpo y filtros deben estar en 1..2147483647 y los `offset` en 0..1000000; fuera de rango es 422. Códigos usados: 401 `unauthorized`, 403 `forbidden`, 404 `not_found`, 409 `conflict`, 413 `request_entity_too_large`, 422 `validation_error`, 429 `too_many_requests` (con cabecera `Retry-After` en segundos), 501 `not_implemented`, 503 `service_unavailable` (el proveedor de IA o de embeddings falló o está mal configurado; no se guarda nada). Cambiar esta forma exige una nueva versión de la API (`/api/v2`).
 
 ## Roles
 

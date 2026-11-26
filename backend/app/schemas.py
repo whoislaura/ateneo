@@ -17,6 +17,8 @@ from app.models import (
     Role,
 )
 
+# Las columnas id son INTEGER de 32 bits: sin cota, Postgres daría 500 en vez de 404/422.
+Id = Annotated[int, Field(ge=1, le=2**31 - 1)]
 Year = Annotated[int, Field(ge=1, le=4)]
 Text = Annotated[str, Field(min_length=1, max_length=200)]
 Question = Annotated[str, Field(min_length=1, max_length=1000)]
@@ -233,8 +235,8 @@ class FeedbackRequest(Contract):
     kind: FeedbackKind
     rating: int | None = Field(default=None, ge=1, le=5)
     comment: Annotated[str, Field(min_length=1, max_length=2000)] | None = None
-    answer_id: int | None = None
-    exam_id: int | None = None
+    answer_id: Id | None = None
+    exam_id: Id | None = None
 
     @model_validator(mode="after")
     def kind_fields(self) -> Self:

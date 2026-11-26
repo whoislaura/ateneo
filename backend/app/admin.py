@@ -8,13 +8,13 @@ from datetime import UTC, datetime, time, timedelta
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import delete, func, or_, select, update
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import logs
 from app.api import ERRORS, NOT_FOUND, answer_out
-from app.auth import create_user, current_user, require_roles, set_password
+from app.auth import create_user, current_user, guard_last_admin, require_roles, set_password
 from app.db import get_db
 from app.models import (
     Answer,
@@ -44,6 +44,7 @@ from app.schemas import (
     DayActivity,
     DocumentStats,
     ErrorResponse,
+    Id,
     PasswordReset,
     UserRef,
     UserStats,
@@ -62,7 +63,7 @@ router = APIRouter(
 Db = Annotated[Session, Depends(get_db)]
 Admin = Annotated[User, Depends(current_user)]
 Limit = Annotated[int, Query(ge=1, le=100)]
-Offset = Annotated[int, Query(ge=0)]
+Offset = Annotated[int, Query(ge=0, le=1_000_000)]
 
 
 def audit(action: str, target: int, admin: User) -> None:
@@ -213,20 +214,8 @@ def create_account(body: AdminUserCreate, admin: Admin, db: Db) -> AdminUserOut:
     return user_out(user, 0)
 
 
-def guard_last_admin(db: Session, target_id: int) -> None:
-    """Revalida la guarda con el bloqueo del dialecto: FOR UPDATE o escritura SQLite."""
-    admins = select(User.id).where(User.role == Role.ADMIN, User.is_active).order_by(User.id)
-    if db.get_bind().dialect.name == "sqlite":
-        db.execute(update(User).where(User.role == Role.ADMIN, User.is_active).values(id=User.id))
-    else:
-        admins = admins.with_for_update()
-    remaining = db.scalars(admins).all()
-    if not [admin_id for admin_id in remaining if admin_id != target_id]:
-        raise conflict("Debe quedar al menos un administrador activo.")
-
-
 @router.patch("/users/{user_id}", response_model=AdminUserOut, responses=NOT_FOUND | CONFLICT)
-def update_account(user_id: int, body: AdminUserUpdate, admin: Admin, db: Db) -> AdminUserOut:
+def update_account(user_id: Id, body: AdminUserUpdate, admin: Admin, db: Db) -> AdminUserOut:
     """Desactivar revoca las sesiones. 409 si deja al propio admin sin acceso o sin admins."""
     user = existing_user(db, user_id)
     changes = body.model_dump(exclude_none=True)
@@ -249,14 +238,14 @@ def update_account(user_id: int, body: AdminUserUpdate, admin: Admin, db: Db) ->
 
 
 @router.post("/users/{user_id}/password", status_code=204, responses=NOT_FOUND)
-def reset_password(user_id: int, body: PasswordReset, admin: Admin, db: Db) -> None:
+def reset_password(user_id: Id, body: PasswordReset, admin: Admin, db: Db) -> None:
     """Cambia la contraseña y revoca las sesiones del usuario."""
     set_password(db, existing_user(db, user_id), body.password)
     audit("password_reset", user_id, admin)
 
 
 @router.delete("/users/{user_id}/sessions", status_code=204, responses=NOT_FOUND)
-def revoke_sessions(user_id: int, admin: Admin, db: Db) -> None:
+def revoke_sessions(user_id: Id, admin: Admin, db: Db) -> None:
     revoke_all(db, existing_user(db, user_id))
     db.commit()
     audit("sessions_revoke", user_id, admin)
@@ -274,7 +263,7 @@ def list_answers(
     db: Db,
     kind: AnswerKind | None = None,
     answer_status: Annotated[AnswerStatus | None, Query(alias="status")] = None,
-    user_id: int | None = None,
+    user_id: Id | None = None,
     limit: Limit = 20,
     offset: Offset = 0,
 ) -> list[AdminAnswerOut]:
@@ -303,7 +292,7 @@ def list_answers(
 
 
 @router.get("/answers/{answer_id}", response_model=AnswerOut, responses=NOT_FOUND)
-def get_answer(answer_id: int, db: Db) -> AnswerOut:
+def get_answer(answer_id: Id, db: Db) -> AnswerOut:
     """Detalle completo de cualquier respuesta, sin restricción de autor."""
     answer = db.get(Answer, answer_id)
     if answer is None:
