@@ -18,6 +18,7 @@ from app.rag.answer import (
     build_prompt,
     cite_reply,
     claim_in_line,
+    release_connection,
     retrieve,
 )
 from app.rag.index import content_terms
@@ -151,6 +152,7 @@ def generate_material(
     }
     if not passages:
         return result
+    release_connection(source)
     reply = re.sub(r"\[\d+\]", "", provider(instructions, build_prompt(prompt, passages)))
     cited = result | cite_reply(source, passages, reply, claim_in_line)
     if cited["status"] == "answered" and not well_formed(format, cited["answer"]):
