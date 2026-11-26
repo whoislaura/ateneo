@@ -78,7 +78,7 @@ Sin `--index` usa PostgreSQL (`DATABASE_URL`) y pgvector; `--embedder openai` us
 
 ## Límites conocidos
 
-- La verificación es por marca: una oración sin marca junto a otra citada se publica (`test_unmarked_sentence_is_a_known_gap`). Exigir marca por oración rechazaría muchas respuestas reales con introducciones; decidir tras medir con un proveedor real.
+- La verificación es por marca: una oración sin marca ni cifras junto a otra citada se publica (`test_unmarked_sentence_is_a_known_gap`); con cifras sin marca, el modo breve rechaza la respuesta entera (la desarrollada solo elimina esa oración). Una marca sin ningún término en común con el fragmento, o mal formada (`[F1, F2]`, `[F1; F2]`), es inválida. Exigir marca por oración rechazaría muchas respuestas reales con introducciones; decidir tras medir con un proveedor real.
 - La cita prueba que el texto existe en la página, no que respalde la afirmación (salvo las cifras). Las cifras se comparan como grupos de dígitos: «1.850» y «1850» no coinciden.
 - Un examen puede usar una oración con una instrucción incrustada como texto a completar; es texto literal del documento, no se ejecuta.
 

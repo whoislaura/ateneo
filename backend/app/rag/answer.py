@@ -62,6 +62,9 @@ verificarse se eliminarán de la respuesta.
 MARKER = re.compile(r"\[F(\d+)\]")
 SEPARATOR = "\n---\n"
 DIGITS = re.compile(r"\d+")
+# «[F1, F2]» o «[F1; F2]»: se rechaza (no se parte en varias marcas) para que cada marca tenga
+# una sola cita y sus offsets se verifiquen y renumeren uno a uno.
+MALFORMED = re.compile(r"\[F\d+\s*[,;][^\]]*\]")
 # shortcut: oración = hasta . ! ? o salto de línea; abreviaturas como "art." la cortan.
 SENTENCE = re.compile(r"[^\s.!?][^.!?\n]*[.!?]?")
 # Partición completa de la respuesta en oraciones (con sus marcas finales) y saltos de línea;
@@ -288,8 +291,8 @@ def claim_in_line(text: str, position: int) -> str:
     return claim_before(text[start:], position - start)
 
 
-def quote_citation(passage: dict, claim: str) -> dict:
-    """Cita sobre la oración del fragmento más parecida a la afirmación (o el fragmento entero).
+def quote_citation(passage: dict, claim: str) -> dict | None:
+    """Cita la oración del fragmento más parecida a la afirmación (None si no comparte términos).
 
     En un fragmento ampliado solo valen oraciones contenidas en uno de sus `chunks`.
     """
@@ -304,6 +307,8 @@ def quote_citation(passage: dict, claim: str) -> dict:
         if owner and score > best:
             span, best, chunk_id = (start, end), score, owner[0]
     # El texto del fragmento es page.text[start:end], así que los offsets pasan a la página.
+    if not best:  # sin ningún término en común, la cita no respalda la afirmación
+        return None
     return {
         "chunk_id": chunk_id,
         "document_id": passage["document_id"],
@@ -369,7 +374,11 @@ def cite_reply(
     válidas; con `partial` elimina solo las oraciones con una cita inválida o con cifras sin
     marca, las anota en `invalid_citations` y conserva el resto.
     """
-    candidates, invalid = {}, []
+    candidates = {}
+    invalid = [
+        {"marker": m.group(0), "reason": "Marca mal formada: una sola marca por corchete."}
+        for m in MALFORMED.finditer(reply)
+    ]
     for match in MARKER.finditer(reply):
         number = int(match.group(1))
         if not 1 <= number <= len(passages):
@@ -383,7 +392,12 @@ def cite_reply(
             reason = "La afirmación tiene cifras que no están en el fragmento."
             invalid.append({"marker": match.group(0), "reason": reason})
             continue
-        candidates[match.start()] = quote_citation(passage, text)
+        citation = quote_citation(passage, text)
+        if citation is None:
+            reason = "La afirmación no comparte términos con el fragmento."
+            invalid.append({"marker": match.group(0), "reason": reason})
+            continue
+        candidates[match.start()] = citation
 
     def key(citation: dict) -> tuple:
         return citation["chunk_id"], citation["start"], citation["end"]
@@ -397,16 +411,20 @@ def cite_reply(
     valid = {at: c for at, c in candidates.items() if key(c) not in refused}
 
     kept = []  # (posición en reply, texto) de lo que se publica
-    if partial:
-        for segment in SEGMENT.finditer(reply):
-            text = segment.group()
-            marks = [segment.start() + m.start() for m in MARKER.finditer(text)]
-            if all(at in valid for at in marks) and (marks or not DIGITS.search(text)):
-                kept.append((segment.start(), text))
-            else:
-                result["invalid_citations"].append({"claim": text.strip(), "reason": DROPPED})
-    elif not result["invalid_citations"] and NOT_FOUND.casefold() not in reply.casefold():
-        kept.append((0, reply))
+    for segment in SEGMENT.finditer(reply):
+        text = segment.group()
+        marks = [segment.start() + m.start() for m in MARKER.finditer(text)]
+        if (
+            all(at in valid for at in marks)
+            and (marks or not DIGITS.search(text))
+            and not MALFORMED.search(text)
+        ):
+            kept.append((segment.start(), text))
+        elif partial or not marks:  # en estricto, las marcas inválidas ya están anotadas
+            result["invalid_citations"].append({"claim": text.strip(), "reason": DROPPED})
+    # Modo estricto: una sola oración rechazada, o «no encontrado», invalida toda la respuesta.
+    if not partial and (result["invalid_citations"] or NOT_FOUND.casefold() in reply.casefold()):
+        kept = []
 
     positions: dict[tuple, int] = {}
 

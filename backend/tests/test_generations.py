@@ -86,7 +86,7 @@ def test_out_of_corpus_generation_is_no_evidence(index, format):
         ("table", f"| A | B |\n|---|---|\n| x | {A} [F1] | extra |"),
         ("table", "| A | B |\n|---|---|\n| x | sin marca |\n" + f"| y | {A} [F1] |"),
         ("diagram", f"{A} [F1]"),
-        ("diagram", "x -> y [F1]\nx -> z"),
+        ("diagram", f"x -> {A} [F1]\nx -> z"),
     ],
 )
 def test_malformed_output_becomes_no_evidence(index, format, reply):
