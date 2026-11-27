@@ -237,3 +237,29 @@ def test_malformed_markers_are_invalid(index, marks):  # noqa: F811
     result = answer_question(index, "¿Qué conserva la biblioteca ficticia?", lambda s, u: reply)
     assert result["status"] == "no_evidence"
     assert "mal formada" in result["invalid_citations"][0]["reason"]
+
+
+def test_fragment_labels_are_not_figures(index):  # noqa: F811
+    # Regresión iteración 2: «F87» en el texto se contaba como la cifra 87 y tumbaba la oración.
+    reply = "Como indica F87, se repite la frase del párrafo 12 [F1]."
+    result = answer_question(
+        index, "¿Qué dice el párrafo 12 sobre conservación?", lambda s, u: reply
+    )
+    assert result["status"] == "answered", result["invalid_citations"]
+
+
+def test_exam_with_half_the_questions_verified_is_returned(exam_db, monkeypatch):
+    # Regresión iteración 2: 4 de 6 verificadas daban 422; ahora basta la mitad.
+    import app.exams as exams_module
+
+    original = exams_module.generate_exam
+    monkeypatch.setattr(exams_module, "generate_exam", lambda *a, **k: original(*a, **k)[:-1])
+    with exam_db() as db:
+        three = ExamRequest(year=1, subject="Civil", question_count=3, difficulty="easy")
+        assert len(make_questions(db, three)[0]) == 2
+    monkeypatch.setattr(exams_module, "generate_exam", lambda *a, **k: original(*a, **k)[:1])
+    with exam_db() as db:
+        four = ExamRequest(year=1, subject="Civil", question_count=4, difficulty="easy")
+        with pytest.raises(HTTPException) as error:
+            make_questions(db, four)
+        assert error.value.status_code == 422

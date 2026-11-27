@@ -83,6 +83,10 @@ export function Examen() {
       })
       setExams((items) => [created, ...items.filter((item) => item.id !== created.id)])
       open(created)
+      const asked = Number(data.get('question_count'))
+      if (created.question_count < asked) {
+        setError(`Solo ${created.question_count} de ${asked} preguntas tenían respaldo verificable en el corpus.`)
+      }
     } catch (err) {
       setError(err instanceof ApiError && err.status === 422 ? err.message : errorMessage(err))
     } finally {

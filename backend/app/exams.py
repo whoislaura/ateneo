@@ -1,5 +1,6 @@
 """CU-06: examen mixto con IA (ver app.rag.exam) y sus citas verificadas."""
 
+import math
 import random
 
 from fastapi import HTTPException, status
@@ -31,7 +32,8 @@ def make_questions(db: Session, request: ExamRequest) -> tuple[list[ExamQuestion
         )
     kinds = plan(request.question_count, request.types)
     questions = generate_exam(db, kinds, passages, request.difficulty, provider)
-    if len(questions) < len(kinds):
+    # Mejor un examen algo más corto que ninguno: basta con la mitad de las preguntas verificadas.
+    if len(questions) < max(1, math.ceil(len(kinds) / 2)):
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             f"El corpus vigente permite {len(questions)} preguntas con respaldo verificable "
