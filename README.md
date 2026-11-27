@@ -3,7 +3,7 @@
 **Asistente académico para la Licenciatura en Derecho de la Universidad de Pinar del Río.**
 Responde preguntas, genera material de estudio y crea exámenes de práctica usando **solo la bibliografía oficial**, siempre con la cita exacta del documento y la página de donde sale cada afirmación.
 
-**Demo:** https://ateneo-web.onrender.com. Pide una cuenta al equipo. Usa la IA de prueba (`fake`), así que muestra el flujo y las citas, no la calidad final de las respuestas.
+**Demo:** https://ateneo-web.onrender.com. Pide una cuenta al equipo. Usa un modelo gratuito vía OpenRouter (50 peticiones al día), así que puede ir lento o agotar la cuota.
 
 ---
 
@@ -108,6 +108,26 @@ Las claves de IA viven solo en el `.env` del servidor, nunca en el frontend ni e
 
 - **Servidor propio:** cada push a `main` pasa CI, publica las imágenes en GHCR y despliega por SSH con Docker Compose. Incluye logs JSON, copias de seguridad con `infra/backup.sh` y gestión de usuarios por consola. Ver [despliegue](docs/deployment.md).
 - **Demo gratuita:** Render (`render.yaml`) más PostgreSQL en Neon. Ver [Demo en Render](docs/deployment.md#demo-en-render).
+
+### Desplegar la demo en Render
+
+Render despliega automáticamente cada push a la rama `main` del repositorio que tiene enlazado (hoy `xcaim04/ateneo`). Para desplegar, cualquiera del equipo con permiso de escritura en ese repositorio ejecuta desde la raíz, con `main` actualizado y sin cambios pendientes:
+
+```sh
+git switch main && git pull
+infra/deploy-render.sh
+```
+
+El script:
+
+1. Comprueba que Render puede avanzar sin forzar el push. Si el repositorio de Render tiene commits que tú no tienes, se detiene y te dice qué fusionar.
+2. Pasa las mismas comprobaciones que la CI: ruff, pytest, y lint, tipos y build del frontend. `--sin-pruebas` las salta.
+3. Lista los commits que se van a subir y avisa si hay migraciones. La API las aplica sola en Neon al arrancar.
+4. Pide confirmación y hace el push.
+
+Render tarda unos 5-10 minutos. Después, comprueba la demo con `python infra/smoke.py https://ateneo-web.onrender.com` (ver [smoke integral](docs/deployment.md#smoke-integral)).
+
+Para apuntar a otro repositorio, rama o URL, usa `ATENEO_DEPLOY_REPO`, `ATENEO_DEPLOY_BRANCH` y `ATENEO_DEPLOY_URL`. Las claves (`DATABASE_URL`, `ATENEO_LLM_API_KEYS`) se cambian solo en el panel de Render, nunca en el repositorio.
 
 ## Documentación
 
