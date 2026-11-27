@@ -121,6 +121,7 @@ def test_hybrid_retrieval_fuses_text_and_vector_ranks(monkeypatch):
 
     monkeypatch.setattr(vector, "search", lambda *a, **k: [passage("v1", 0.1), passage("t2", 0.2)])
     monkeypatch.setattr(vector, "text_search", lambda *a, **k: [passage("t1", 3), passage("t2", 2)])
+
     def real_embedder(texts):  # cualquier embedder que no sea el de pruebas
         return vector.fake_embedder(texts)
 

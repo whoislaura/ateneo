@@ -3,6 +3,7 @@
 import io
 import json
 import random
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -15,10 +16,11 @@ from test_corpus import get, upload
 from test_models import BACKEND, TEST_DATABASE_URL, alembic_config
 
 from app.exam_pdf import INSTITUTION
-from app.models import Chunk, Document, Role
+from app.models import Chunk, Document, Exam, Role
 from app.models import Page as PageRow
 from app.rag import exam
 from app.rag.exam import generate_exam, load_passages, parse_questions, plan, points_and_minutes
+from app.rag.rotation import ProviderError
 
 
 def test_plan_covers_every_type_and_respects_selection():
@@ -143,8 +145,51 @@ def test_malformed_test_questions_are_dropped(db):
 def create_exam(client, **changes):
     body = {"year": 1, "subject": "Civil", "question_count": 6, "difficulty": "medium"} | changes
     response = client.post("/api/v1/exams", headers=client.headers_for[Role.STUDENT], json=body)
-    assert response.status_code == 201, response.json()
-    return response.json()
+    assert response.status_code == 202, response.json()
+    return get(client, f"/exams/{response.json()['id']}", Role.STUDENT).json()
+
+
+def test_exam_is_pending_then_ready_and_pdfs_are_409_while_pending(client, db, monkeypatch):
+    from app.api import run_exam
+
+    jobs = []
+    monkeypatch.setattr("app.api.run_exam", lambda *args: jobs.append(args))  # sin ejecutar aún
+    body = {"year": 1, "subject": "Civil", "question_count": 4, "difficulty": "easy"}
+    response = client.post("/api/v1/exams", headers=client.headers_for[Role.STUDENT], json=body)
+    assert response.status_code == 202
+    path = f"/exams/{response.json()['id']}"
+    pending = get(client, path, Role.STUDENT).json()
+    assert (pending["status"], pending["error"], pending["questions"]) == ("pending", None, [])
+    for suffix in ("pdf", "answers/pdf"):
+        assert get(client, f"{path}/{suffix}", Role.STUDENT).status_code == 409
+    run_exam(*jobs[0])
+    ready = get(client, path, Role.STUDENT).json()
+    assert ready["status"] == "ready" and len(ready["questions"]) == 4
+    for suffix in ("pdf", "answers/pdf"):
+        assert get(client, f"{path}/{suffix}", Role.STUDENT).status_code == 200
+
+
+def test_provider_failure_marks_exam_failed_with_readable_message(client, db, monkeypatch):
+    def broken(*args):
+        raise ProviderError("caída del proveedor")
+
+    monkeypatch.setattr("app.exams.generate_exam", broken)
+    failed = create_exam(client)
+    assert failed["status"] == "failed" and failed["questions"] == []
+    assert "no está disponible" in failed["error"] and "caída" not in failed["error"]
+    assert get(client, f"/exams/{failed['id']}/pdf", Role.STUDENT).status_code == 409
+
+
+def test_stale_pending_exam_is_reported_failed(client, db, factory, monkeypatch):
+    monkeypatch.setattr("app.api.run_exam", lambda *args: None)
+    body = {"year": 1, "subject": "Civil", "question_count": 2, "difficulty": "easy"}
+    response = client.post("/api/v1/exams", headers=client.headers_for[Role.STUDENT], json=body)
+    exam_id = response.json()["id"]
+    with factory() as session:
+        session.get(Exam, exam_id).created_at = datetime.now(UTC) - timedelta(minutes=11)
+        session.commit()
+    listed = get(client, "/exams", Role.STUDENT).json()
+    assert listed[0]["status"] == "failed" and "interrumpió" in listed[0]["error"]
 
 
 def pdf_text(response) -> str:
@@ -237,7 +282,7 @@ def test_migration_0006_keeps_old_exams_readable(monkeypatch):
                     "VALUES (1, 1, 'Completa el fragmento: «a […] b»', 'x')"
                 )
             )
-        command.upgrade(config, "0006")
+        command.upgrade(config, "0007")
         with sessionmaker(engine)() as session:
             from app.models import Exam
 

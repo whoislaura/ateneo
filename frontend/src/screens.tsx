@@ -27,7 +27,26 @@ export function Examen() {
   const [listError, setListError] = useState('')
   const [page, setPage] = useState({ offset: 0, more: false })
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [asked, setAsked] = useState(0)
   const dialogRef = useRef<HTMLDialogElement>(null)
+
+  // La generación es asíncrona: se consulta el examen abierto hasta que quede listo o falle.
+  const watching = exam?.status === 'pending' ? exam.id : null
+  useEffect(() => {
+    if (watching === null) return
+    const timer = setInterval(() => {
+      api<Exam>(`/exams/${watching}`)
+        .then((fresh) => {
+          setExams((items) => items.map((item) => (item.id === fresh.id ? fresh : item)))
+          setExam((current) => (current?.id === fresh.id ? fresh : current))
+          if (fresh.status === 'ready' && asked && fresh.question_count < asked) {
+            setError(`Solo ${fresh.question_count} de ${asked} preguntas tenían respaldo verificable en el corpus.`)
+          }
+        })
+        .catch((err: unknown) => setError(errorMessage(err)))
+    }, 4000)
+    return () => clearInterval(timer)
+  }, [watching, asked])
 
   useEffect(() => {
     const dialog = dialogRef.current
@@ -59,6 +78,7 @@ export function Examen() {
 
   function open(next: Exam) {
     setExam(next)
+    setAsked(0)
     setAnswers([])
     setError('')
   }
@@ -83,10 +103,7 @@ export function Examen() {
       })
       setExams((items) => [created, ...items.filter((item) => item.id !== created.id)])
       open(created)
-      const asked = Number(data.get('question_count'))
-      if (created.question_count < asked) {
-        setError(`Solo ${created.question_count} de ${asked} preguntas tenían respaldo verificable en el corpus.`)
-      }
+      setAsked(Number(data.get('question_count')))
     } catch (err) {
       setError(err instanceof ApiError && err.status === 422 ? err.message : errorMessage(err))
     } finally {
@@ -170,7 +187,7 @@ export function Examen() {
             ))}
           </fieldset>
           <button type="submit">Generar examen</button>
-          {pending && <p role="status" className="loading">Generando el examen con la IA; puede tardar hasta un minuto…</p>}
+          
         </fieldset>
       </form>
 
@@ -183,7 +200,7 @@ export function Examen() {
           <ul className="exam-list">{exams.map((item) => (
             <li key={item.id}>
               <button type="button" className="secondary" disabled={pending} onClick={() => open(item)} aria-current={item.id === exam?.id || undefined}>
-                Examen {item.id} · {item.subject} · {difficultyLabels[item.difficulty]}
+                Examen {item.id} · {item.subject} · {difficultyLabels[item.difficulty]}{item.status !== 'ready' && ` · ${item.status === 'pending' ? 'generando…' : 'falló'}`}
               </button>
             </li>
           ))}</ul>
@@ -197,19 +214,23 @@ export function Examen() {
       {exam && (
         <section className="result" aria-labelledby="active-exam">
           <h2 id="active-exam">{exam.subject}{exam.topic && ` · ${exam.topic}`}</h2>
-          <p className="note">{exam.duration_minutes} minutos · {String(exam.total_points).replace('.', ',')} puntos</p>
+          {exam.status === 'pending' && <p role="status" className="loading">Generando el examen con la IA; puede tardar varios minutos. Puedes dejar esta página abierta: se actualiza sola.</p>}
+          {exam.status === 'failed' && <p role="alert" className="status error">{exam.error}</p>}
+          {exam.status === 'ready' && <p className="note">{exam.duration_minutes} minutos · {String(exam.total_points).replace('.', ',')} puntos</p>}
           <div className="actions">
+            {exam.status === 'ready' && <>
             <button type="button" className="secondary" disabled={pending} onClick={() => save(`/exams/${exam.id}/pdf`, `examen-${exam.id}.pdf`)}>
               Descargar examen (PDF)
             </button>
             <button type="button" className="secondary" disabled={pending} onClick={() => save(`/exams/${exam.id}/answers/pdf`, `clave-examen-${exam.id}.pdf`)}>
               Descargar clave (PDF)
             </button>
+            </>}
             <button type="button" className="secondary danger small" disabled={pending} onClick={() => setConfirmDelete(true)}>
               Borrar examen
             </button>
           </div>
-          <form key={exam.id} onSubmit={reveal}>
+          {exam.status === 'ready' && <form key={exam.id} onSubmit={reveal}>
             <ol className="questions">
               {exam.questions.map((question) => {
                 const solution = answers.find((item) => item.question_id === question.id)
@@ -252,8 +273,8 @@ export function Examen() {
               {answers.length > 0 ? 'Respuestas mostradas' : 'Ver respuestas'}
             </button>
             {answers.length > 0 && <p role="status" className="status ok">Respuestas y fuentes cargadas.</p>}
-          </form>
-          <Link className="feedback-link" to={`/feedback?exam_id=${exam.id}`}>Enviar feedback de este examen</Link>
+          </form>}
+          {exam.status === 'ready' && <Link className="feedback-link" to={`/feedback?exam_id=${exam.id}`}>Enviar feedback de este examen</Link>}
         </section>
       )}
       <dialog ref={dialogRef} aria-labelledby="examen-borrar-titulo" aria-describedby="examen-borrar-texto" onClose={() => setConfirmDelete(false)}>

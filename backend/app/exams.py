@@ -13,8 +13,8 @@ from app.rag.exam import PROVIDERS, generate_exam, load_passages, plan, points_a
 from app.schemas import ExamRequest
 
 
-def make_questions(db: Session, request: ExamRequest) -> tuple[list[ExamQuestion], int]:
-    """Preguntas del examen (con citas) y duración en minutos. 422 si no se logra la cantidad."""
+def prepare(db: Session, request: ExamRequest) -> tuple[str, list[str], list[dict]]:
+    """Parte rápida (sin LLM): proveedor, plan de tipos y pasajes. 422 si no hay material."""
     provider = setting(PROVIDERS, "ATENEO_LLM_PROVIDER")
     setting(vector.EMBEDDERS, "ATENEO_EMBEDDER")  # misma validación de entorno que el resto
     passages = load_passages(
@@ -30,8 +30,20 @@ def make_questions(db: Session, request: ExamRequest) -> tuple[list[ExamQuestion
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             "El corpus vigente no tiene material con esos filtros.",
         )
-    kinds = plan(request.question_count, request.types)
-    questions = generate_exam(db, kinds, passages, request.difficulty, provider)
+    return provider, plan(request.question_count, request.types), passages
+
+
+def make_questions(db: Session, request: ExamRequest) -> tuple[list[ExamQuestion], int]:
+    """Preguntas del examen (con citas) y duración en minutos. 422 si no se logra la cantidad."""
+    provider, kinds, passages = prepare(db, request)
+    return build(db, provider, kinds, passages, request.difficulty)
+
+
+def build(
+    db: Session, provider: str, kinds: list[str], passages: list[dict], difficulty: str
+) -> tuple[list[ExamQuestion], int]:
+    """Parte lenta (llama al LLM); se ejecuta en segundo plano."""
+    questions = generate_exam(db, kinds, passages, difficulty, provider)
     # Mejor un examen algo más corto que ninguno: basta con la mitad de las preguntas verificadas.
     if len(questions) < max(1, math.ceil(len(kinds) / 2)):
         raise HTTPException(

@@ -6,10 +6,20 @@ Los permisos por rol (AT-08) se aplican: 401 sin sesión y 403 sin rol.
 import logging
 import math
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, Response, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    status,
+)
 from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session, selectinload
 
@@ -716,33 +726,71 @@ def clear_history(
 # CU-06
 
 
+STALE_EXAM = timedelta(minutes=10)  # más allá, el proceso que lo generaba se reinició
+
+
+def run_exam(bind, exam_id: int, provider: str, kinds: list[str], passages: list[dict]) -> None:
+    """Segundo plano: genera las preguntas con su propia sesión y deja el examen ready o failed."""
+    with Session(bind) as db:
+        exam = db.get(Exam, exam_id)
+        if exam is None:  # borrado mientras se generaba
+            return
+        try:
+            questions, minutes = exams.build(db, provider, kinds, passages, exam.difficulty)
+            exam.questions = questions
+            exam.duration_minutes, exam.question_count, exam.status = (
+                minutes,
+                len(questions),
+                "ready",
+            )
+        except (ProviderError, OSError, HTTPException) as exc:
+            db.rollback()
+            if isinstance(exc, HTTPException):
+                error = exc.detail
+            else:
+                ai_unavailable(exc, "")  # solo registra la causa
+                error = (
+                    "El servicio de generación de exámenes no está disponible. Inténtelo de nuevo."
+                )
+            exam = db.get(Exam, exam_id)
+            exam.status, exam.error = "failed", error
+        db.commit()
+
+
+def expire_stale(db: Session, rows: list[Exam]) -> None:
+    """Un examen pendiente demasiado viejo se da por fallido (el proceso se reinició)."""
+    limit = datetime.now(UTC) - STALE_EXAM
+    for exam in rows:
+        created = exam.created_at if exam.created_at.tzinfo else exam.created_at.replace(tzinfo=UTC)
+        if exam.status == "pending" and created < limit:
+            exam.status, exam.error = (
+                "failed",
+                "La generación se interrumpió. Genere el examen de nuevo.",
+            )
+    db.commit()
+
+
 @router.post(
     "/exams",
     response_model=ExamOut,
-    status_code=201,
-    responses={503: {"model": ErrorResponse}},
+    status_code=202,
     dependencies=AI,
     tags=["examenes"],
 )
 def create_exam(
     body: ExamRequest,
+    background: BackgroundTasks,
     user: Annotated[User, Depends(current_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> ExamOut:
-    """Estudiante, Profesor. Genera el examen mixto con IA; las respuestas no se incluyen."""
-    user_id = user.id  # el rollback previo a la llamada al LLM expira `user`
-    try:
-        questions, minutes = exams.make_questions(db, body)
-    except (ProviderError, OSError) as exc:
-        raise ai_unavailable(
-            exc, "El servicio de generación de exámenes no está disponible."
-        ) from exc
+    """Estudiante, Profesor. Encola la generación del examen mixto; consultar `GET /exams/{id}`."""
+    user_id = user.id
+    provider, kinds, passages = exams.prepare(db, body)
     exam = Exam(
         user_id=user_id,
-        questions=questions,
-        duration_minutes=minutes,
-        question_count=len(questions),
-        **body.model_dump(exclude={"types", "question_count"}),
+        status="pending",
+        duration_minutes=0,
+        **body.model_dump(exclude={"types"}),
     )
     db.add(exam)
     db.flush()
@@ -752,6 +800,7 @@ def create_exam(
         )
     )
     db.commit()
+    background.add_task(run_exam, db.get_bind(), exam.id, provider, kinds, passages)
     return ExamOut.model_validate(exam, from_attributes=True)
 
 
@@ -771,7 +820,9 @@ def list_exams(
         .limit(limit)
         .offset(offset)
     )
-    return [ExamOut.model_validate(exam, from_attributes=True) for exam in db.scalars(statement)]
+    rows = list(db.scalars(statement))
+    expire_stale(db, rows)
+    return [ExamOut.model_validate(exam, from_attributes=True) for exam in rows]
 
 
 def owned_exam(db: Session, exam_id: int, user: User) -> Exam:
@@ -812,7 +863,9 @@ def get_exam(
     db: Annotated[Session, Depends(get_db)],
 ) -> ExamOut:
     """Autor del examen."""
-    return ExamOut.model_validate(owned_exam(db, exam_id, user), from_attributes=True)
+    exam = owned_exam(db, exam_id, user)
+    expire_stale(db, [exam])
+    return ExamOut.model_validate(exam, from_attributes=True)
 
 
 @router.get(
@@ -847,7 +900,7 @@ def get_exam_answers(
     ]
 
 
-PDF = {200: {"content": {"application/pdf": {}}}, **NOT_FOUND}
+PDF = {200: {"content": {"application/pdf": {}}}, 409: {"model": ErrorResponse}, **NOT_FOUND}
 
 
 def pdf_response(content: bytes, filename: str) -> Response:
@@ -859,7 +912,10 @@ def pdf_response(content: bytes, filename: str) -> Response:
 
 
 def exam_with_citations(db: Session, exam_id: int, user: User) -> Exam:
-    owned_exam(db, exam_id, user)
+    exam = owned_exam(db, exam_id, user)
+    expire_stale(db, [exam])
+    if exam.status != "ready":
+        raise HTTPException(status.HTTP_409_CONFLICT, "El examen todavía no está listo.")
     return db.scalars(
         select(Exam)
         .where(Exam.id == exam_id)
