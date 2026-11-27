@@ -26,7 +26,7 @@ La primera búsqueda devuelve la página física 1 de `muestra-a`. La segunda li
 1. Arranca un entorno de pruebas según [Despliegue](deployment.md). Usa los proveedores `fake` de la configuración de ejemplo y crea cuentas de profesor y estudiante con `python -m app.auth create-user` dentro de la API.
 2. Entra como profesor y sube los dos PDFs anteriores desde **Corpus**. Usa las clasificaciones de sus archivos JSON. La muestra A debe indicar indexación parcial por su página vacía.
 3. Entra como estudiante. En **Consulta**, pregunta «¿Dónde se menciona azafrán?» y abre la cita de la primera página. En **Generación**, pide un resumen sobre la biblioteca. Prueba también una pregunta fuera del corpus, como «¿Cuál es la capital de Francia?».
-4. En **Examen**, genera dos preguntas para 4.º año, «Asignatura ficticia B», tema «Evaluación» y dificultad media. Completa los fragmentos, muestra las soluciones y comprueba la página citada. Envía una valoración desde el enlace del examen.
+4. En **Examen**, genera dos preguntas para 4.º año, «Asignatura ficticia B», tema «Evaluación» y dificultad media. Responde, muestra las soluciones y comprueba la página citada. Envía una valoración desde el enlace del examen.
 5. Inicia sesión como profesor y verifica que **Examen** muestra solo sus propios ejercicios. Retira la muestra B y comprueba que un examen nuevo con esa clasificación devuelve falta de material, mientras las soluciones de un examen anterior conservan sus citas.
 
 Esta demostración comprueba el flujo técnico con material sintético. Para la aceptación académica se necesita el corpus oficial y la revisión del cliente.
@@ -60,7 +60,9 @@ Las estructuras están en `app.rag.ingestion`; no constituyen tablas definitivas
 
 La página física y la etiqueta del PDF se conservan separadas. No se interpreta como número impreso un pie de página ni se inventan etiquetas ausentes. Los offsets son índices de caracteres Python sobre el texto normalizado, con final exclusivo: `page.text[start:end] == chunk.text`. No son posiciones de bytes ni coordenadas visuales.
 
-La normalización usa Unicode NFC, unifica saltos de línea, elimina NUL y espacios redundantes y conserva separaciones de párrafos. No elimina encabezados/pies ni intenta reconstruir tablas o separar columnas.
+La normalización usa Unicode NFC y expande las ligaduras tipográficas (ﬁ, ﬂ, ﬀ, ﬃ, ﬄ, ﬅ, ﬆ) a sus letras, para que "fianza" encuentre "ﬁanza" extraído de PDF de InDesign o LaTeX. No se usa NFKC completo porque alteraría "n.º", "½" y los superíndices de notas. Unifica saltos de línea, elimina NUL y espacios redundantes y conserva separaciones de párrafos. No elimina encabezados/pies ni intenta reconstruir tablas o separar columnas.
+
+**Reindexar tras este cambio.** Los documentos ya indexados conservan su texto antiguo (con ligaduras) y siguen sin encontrarse por la palabra normal. Hay que volver a ingerirlos: en SQLite, `python -m app.rag ingest`/`ingest-dir` sobre los PDF originales; en PostgreSQL, `ingest-dir` o, desde la web, reemplazar cada PDF en Corpus (`PUT /documents/{id}`). Los identificadores de fragmento solo cambian en los que contenían ligaduras; las citas guardadas mantienen su copia.
 
 ## Chunking
 

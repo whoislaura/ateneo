@@ -46,17 +46,21 @@ Compose construye `DATABASE_URL` con `POSTGRES_*` (por eso `POSTGRES_PASSWORD` s
 | `ATENEO_LLM_API_KEYS`, `ATENEO_EMBED_API_KEYS` | Claves separadas por comas (cuentas rotativas); alternativa: `*_API_KEY` con una sola |
 | `ATENEO_LLM_MODEL`, `ATENEO_EMBED_MODEL` | Modelos; obligatorios con `openai` |
 | `ATENEO_LLM_BASE_URL`, `ATENEO_EMBED_BASE_URL` | Por defecto `https://api.openai.com/v1` |
+| `ATENEO_LLM_REASONING` | `low`, `medium`, `high` o vacío (defecto: no se envía). Se envía como `"reasoning": {"effort": ...}`; en modelos con razonamiento evita que los tokens de pensamiento agoten `max_tokens` y corten la respuesta (en `render.yaml`, `low`). La reformulación del chat usa siempre `low` si está definida |
 | `ATENEO_EMBED_DIM`, `ATENEO_MAX_DISTANCE` | 256 y 0.5; ver [prototipo RAG](rag-prototype.md) |
+| `ATENEO_RETRIEVAL` | Recuperación en PostgreSQL: `hybrid` (defecto; texto completo y vector fusionados por RRF), `text` o `vector`. Ver [QA del RAG](qa-rag.md#recuperación-híbrida) |
 
 Tras cambiar `.env`: `docker compose up -d` (recrea la API).
 
-**Cuentas IA rotativas.** Con varias claves, cada llamada empieza por la última que funcionó; ante 429, 5xx, timeout o error de red pasa a la siguiente. Hace como máximo un intento por clave (dos si hay una sola) y después la API responde 503 `service_unavailable` sin guardar nada. Otros 4xx (p. ej. 401 por clave revocada) no se reintentan: retirar esa clave de la lista. Las claves nunca se registran; los reintentos aparecen como `ai_retry` con la posición de la clave (`key_index`).
+**Cuentas IA rotativas.** Con varias claves, cada llamada empieza por la última que funcionó; ante 401/402/403 (clave revocada o sin saldo), 429, 5xx o error de red pasa a la siguiente; tras un timeout no reintenta (otro intento superaría los 120 s de Nginx; `ATENEO_LLM_TIMEOUT` debe quedar por debajo). Hace como máximo un intento por clave (dos si hay una sola) y después la API responde 503 `service_unavailable` sin guardar nada. Otros 4xx (p. ej. 400) no se reintentan. Una respuesta 200 sin contenido válido también acaba en 503; la causa queda en el log `ai_error`. Retirar de la lista las claves revocadas o sin saldo. Las claves nunca se registran; los reintentos aparecen como `ai_retry` con la posición de la clave (`key_index`).
 
 ### Límites de subida
 
 Nginx acepta cuerpos de hasta 25 MB (`frontend/nginx.conf`); el backend corta en `ATENEO_MAX_UPLOAD_MB` (20 por defecto) y devuelve el 413 JSON del contrato. Ese margen de 5 MB deja responder al backend antes de que Nginx corte. Si se sube `ATENEO_MAX_UPLOAD_MB` por encima de 25, actualizar también `client_max_body_size`.
 
 ### Límite de intentos de login
+
+El contador de cuenta se indexa por (correo, IP): quien falla 5 veces desde su IP bloquea solo ese par, no la cuenta para el resto (antes cualquiera podía bloquear 15 min la cuenta del admin). Esto exige que `ATENEO_TRUSTED_PROXY_HOPS` esté bien configurado: si la API ve una misma IP para todos (el proxy), vuelve el bloqueo compartido de la cuenta, y además el límite por IP pasa a ser global.
 
 Pasados los fallos permitidos, `POST /auth/login` responde 429 `too_many_requests` con `Retry-After` (ver [contrato](api-contract.md#autenticación-cu-00-at-08)). El límite por IP es más alto que el de cuenta porque un aula o una red institucional puede salir a internet con una sola IP. Los contadores viven en la memoria del proceso: se pierden al reiniciar la API y no se comparten entre réplicas (suficiente con un único proceso; con varios, mover a la base o a Redis).
 
@@ -181,6 +185,7 @@ python infra/smoke.py https://ateneo-web.onrender.com
 ```
 
 - `infra/demo_corpus.py` genera los PDF con `app.rag.sample` (ReportLab, dependencia de desarrollo) y sube `muestra-a` y `muestra-b` con los metadatos de su JSON. Es idempotente: si el documento ya existe (409) lo sustituye con `PUT`, que reindexa y lo reactiva si estaba retirado. `--con-inyeccion` añade `muestra-c`, el documento con una instrucción incrustada para QA; no conviene en una demo.
+- Tras el cambio de normalización de ligaduras (ﬁ, ﬂ…) hay que reindexar la demo: volver a ejecutar `infra/demo_corpus.py` (el `PUT` reindexa) y, para cualquier otro PDF, reemplazarlo desde Corpus. Ver [ingestión](ingestion.md).
 - `infra/smoke.py` hace las comprobaciones técnicas de siempre (reintenta la salud durante unos minutos por el arranque en frío de Render) y, si las dos variables están definidas, inicia sesión, lee `/auth/me`, lista documentos, consulta «¿Dónde aparece azafrán?» exigiendo `answered` con una cita no vacía, genera un resumen, crea un examen y lee sus soluciones, busca la consulta en el historial, envía feedback y cierra la sesión. Imprime `OK`/`FAIL` por paso y sale con código distinto de cero al primer fallo. La comprobación de pgvector con `docker compose` solo se hace contra `localhost`/`127.0.0.1`; en remoto la cubre la consulta.
 - Cada ejecución deja en la cuenta una consulta, una generación, un examen y un feedback; usar una cuenta dedicada al smoke. Cinco logins fallidos seguidos bloquean la cuenta 15 minutos (429).
 

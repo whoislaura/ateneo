@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.error import URLError
 
 import pytest
 from alembic import command
@@ -30,6 +31,8 @@ from app.models import (
     User,
 )
 from app.rag import vector
+from app.rag.answer import PROVIDERS
+from app.rag.generate import PROVIDERS as GEN_PROVIDERS
 from app.rag.ingestion import DocumentMetadata, extract_pdf
 from app.rag.sample import create_sample
 
@@ -105,6 +108,8 @@ def factory(monkeypatch):
 
     # pgvector no existe en SQLite: se sustituye solo la recuperación, no el adaptador.
     monkeypatch.setattr(vector, "search", search)
+    # SQLite no tiene texto completo de PostgreSQL; la prueba cubre la API, no la recuperación.
+    monkeypatch.setenv("ATENEO_RETRIEVAL", "vector")
     monkeypatch.delenv("ATENEO_LLM_PROVIDER", raising=False)
     return factory
 
@@ -325,12 +330,16 @@ def test_query_roles_and_validation(client):
 
 def test_rag_failure_is_503_and_persists_nothing(client, factory, monkeypatch):
     monkeypatch.setenv("ATENEO_LLM_PROVIDER", "openai")
-    monkeypatch.delenv("ATENEO_LLM_API_KEY", raising=False)
+    monkeypatch.setenv("ATENEO_LLM_API_KEY", "k")
+    monkeypatch.setenv("ATENEO_LLM_MODEL", "m")
+
+    def down(*args, **kwargs):
+        raise URLError("sin red")
+
+    monkeypatch.setattr("app.rag.answer.urllib.request.urlopen", down)
     response = ask(client, question="¿Qué conserva la biblioteca?")
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "service_unavailable"
-    monkeypatch.setenv("ATENEO_LLM_PROVIDER", "otro")
-    assert ask(client, question="¿Qué conserva la biblioteca?").status_code == 503
     with factory() as db:
         assert db.scalar(select(func.count()).select_from(Answer)) == 0
 
@@ -455,3 +464,35 @@ def test_postgres_query_end_to_end(monkeypatch, tmp_path):
         app.dependency_overrides.clear()
         engine.dispose()
         command.downgrade(config, "base")
+
+
+@pytest.mark.parametrize(
+    ("path", "body"),
+    [
+        ("/api/v1/queries", {"question": "¿Qué conserva la biblioteca?"}),
+        ("/api/v1/generations", {"format": "summary", "prompt": "catálogo de leyes"}),
+    ],
+)
+def test_provider_call_holds_no_transaction(client, factory, monkeypatch, path, body):
+    """B2: durante la llamada al LLM la sesión no retiene transacción ni conexión del pool."""
+    sessions, states = [], []
+
+    def override():
+        with factory() as db:
+            sessions.append(db)
+            yield db
+
+    app.dependency_overrides[get_db] = override
+
+    def spy(system, user):
+        states.append([db.in_transaction() for db in sessions])
+        return TEXT
+
+    monkeypatch.setitem(PROVIDERS, "spy", spy)
+    monkeypatch.setitem(GEN_PROVIDERS, "spy", spy)
+    monkeypatch.setenv("ATENEO_LLM_PROVIDER", "spy")
+    response = client.post(path, json=body, headers=client.headers_for[Role.STUDENT])
+    assert response.status_code == 201, response.text
+    assert states == [[False]]
+    with factory() as db:
+        assert db.scalar(select(func.count()).select_from(HistoryEntry)) == 1

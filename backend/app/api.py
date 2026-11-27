@@ -5,15 +5,28 @@ Los permisos por rol (AT-08) se aplican: 401 sin sesión y 403 sin rol.
 
 import logging
 import math
+import re
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    status,
+)
 from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session, selectinload
 
-from app import citations, corpus, exams, generation, query
+from app import citations, corpus, exam_pdf, exams, generation, query
 from app.auth import (
     TOKEN_TTL,
+    ai_quota,
     authenticate,
     client_ip,
     create_session,
@@ -29,18 +42,25 @@ from app.models import (
     AnswerKind,
     AnswerStatus,
     Citation,
+    Conversation,
     Document,
     Exam,
     ExamQuestion,
     Feedback,
     HistoryAction,
     HistoryEntry,
+    Message,
+    MessageRole,
     Role,
     User,
 )
+from app.rag.answer import HISTORY_MESSAGES
+from app.rag.rotation import ProviderError
 from app.schemas import (
     AnswerOut,
     CitationOut,
+    ConversationDetail,
+    ConversationOut,
     DocumentOut,
     DocumentReplace,
     DocumentUpload,
@@ -52,11 +72,17 @@ from app.schemas import (
     FeedbackRequest,
     GenerationRequest,
     HistoryEntryOut,
+    Id,
     IngestionReport,
+    Limit,
     LoginRequest,
+    MessageOut,
+    Offset,
     PageOut,
     QueryRequest,
     TokenResponse,
+    TurnOut,
+    TurnRequest,
     UserOut,
     Year,
 )
@@ -65,6 +91,9 @@ ERRORS = {code: {"model": ErrorResponse} for code in (401, 403, 422, 501)}
 NOT_FOUND = {404: {"model": ErrorResponse}}
 UNAVAILABLE = {503: {"model": ErrorResponse}}
 ai_log = logging.getLogger("ateneo.ai")
+
+
+SECRET = re.compile(r"\bsk-[A-Za-z0-9_-]+|Bearer\s+\S+", re.IGNORECASE)
 
 
 def ai_unavailable(exc: Exception, message: str) -> HTTPException:
@@ -77,13 +106,15 @@ def ai_unavailable(exc: Exception, message: str) -> HTTPException:
             pass
     elif str(exc):
         cause += f": {str(exc)[:300]}"
-    ai_log.warning("ai_error", extra={"error": cause})
+    ai_log.warning("ai_error", extra={"error": SECRET.sub("[redactado]", cause)})
     return HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, message)
+
 
 public = APIRouter(prefix="/api/v1", responses=ERRORS)
 router = APIRouter(prefix="/api/v1", responses=ERRORS, dependencies=[Depends(current_user)])
 
 STUDY = [Depends(require_roles(Role.STUDENT, Role.TEACHER))]
+AI = [*STUDY, Depends(ai_quota)]  # endpoints que llaman al LLM
 CORPUS = [Depends(require_roles(Role.TEACHER, Role.ADMIN))]
 
 
@@ -111,7 +142,7 @@ def login(body: LoginRequest, request: Request, db: Annotated[Session, Depends(g
         login_limiter.fail(body.email, ip)
         # Mismo mensaje para correo inexistente, contraseña errónea o usuario inactivo.
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Correo o contraseña incorrectos.")
-    login_limiter.succeed(body.email)
+    login_limiter.succeed(body.email, ip)
     return TokenResponse(
         access_token=create_session(db, user),
         expires_in=int(TOKEN_TTL.total_seconds()),
@@ -166,7 +197,7 @@ def answer_out(answer: Answer) -> AnswerOut:
     response_model=AnswerOut,
     status_code=201,
     responses={503: {"model": ErrorResponse}},
-    dependencies=STUDY,
+    dependencies=AI,
     tags=["consulta"],
 )
 def create_query(
@@ -176,13 +207,14 @@ def create_query(
 ):
     """Estudiante, Profesor. Respuesta restringida al corpus con citas (CU-05)."""
     filters = body.model_dump(exclude={"question", "mode"})
+    user_id = user.id  # el rollback previo a la llamada al LLM expira `user`
     try:
         result = query.ask(db, body.question, mode=body.mode, **filters)
-    except (ValueError, OSError) as exc:
+    except (ProviderError, OSError) as exc:
         raise ai_unavailable(exc, "El servicio de respuestas no está disponible.") from exc
     answer_status, content, valid = citations.validate(db, result)
     answer = Answer(
-        user_id=user.id,
+        user_id=user_id,
         kind=AnswerKind.QUERY,
         status=answer_status,
         question=body.question,
@@ -194,7 +226,7 @@ def create_query(
     db.flush()
     db.add(
         HistoryEntry(
-            user_id=user.id, action=HistoryAction.QUERY, summary=body.question, answer_id=answer.id
+            user_id=user_id, action=HistoryAction.QUERY, summary=body.question, answer_id=answer.id
         )
     )
     db.commit()
@@ -206,7 +238,7 @@ def create_query(
     response_model=AnswerOut,
     status_code=201,
     responses={503: {"model": ErrorResponse}},
-    dependencies=STUDY,
+    dependencies=AI,
     tags=["consulta"],
 )
 def create_generation(
@@ -216,16 +248,17 @@ def create_generation(
 ):
     """Estudiante, Profesor. Resumen, esquema, cuadro o diagrama en texto, con citas (CU-05)."""
     filters = body.model_dump(exclude={"format", "prompt"})
+    user_id = user.id  # el rollback previo a la llamada al LLM expira `user`
     try:
         result = generation.generate(db, body.format, body.prompt, **filters)
-    except (ValueError, OSError) as exc:
+    except (ProviderError, OSError) as exc:
         raise ai_unavailable(exc, "El servicio de generación no está disponible.") from exc
     answer_status, content, valid = citations.validate(db, result)
     # La salida final debe conservar la estructura pedida tras renumerar las citas.
     if answer_status == AnswerStatus.ANSWERED and not generation.well_formed(body.format, content):
         answer_status, content, valid = AnswerStatus.NO_EVIDENCE, citations.NO_EVIDENCE, []
     answer = Answer(
-        user_id=user.id,
+        user_id=user_id,
         kind=AnswerKind(body.format),
         status=answer_status,
         question=body.prompt,
@@ -237,7 +270,7 @@ def create_generation(
     db.flush()
     db.add(
         HistoryEntry(
-            user_id=user.id,
+            user_id=user_id,
             action=HistoryAction.GENERATION,
             summary=body.prompt,
             answer_id=answer.id,
@@ -247,11 +280,217 @@ def create_generation(
     return answer_out(answer)
 
 
+# CU-01: chat con memoria
+
+
+def message_out(message: Message) -> MessageOut:
+    answer = message.answer
+    return MessageOut(
+        id=message.id,
+        role=message.role,
+        content=message.content,
+        status=answer.status if answer else None,
+        answer_id=message.answer_id,
+        citations=[citation_out(c) for c in answer.citations] if answer else [],
+        created_at=message.created_at,
+    )
+
+
+def owned_conversation(db: Session, conversation_id: int, user_id: int) -> Conversation:
+    conversation = db.get(Conversation, conversation_id)
+    if conversation is None or conversation.user_id != user_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversación no encontrada.")
+    return conversation
+
+
+def run_turn(
+    db: Session, user_id: int, conversation: Conversation | None, body: TurnRequest
+) -> TurnOut:
+    """Un turno: reformula con el hilo, responde con citas y guarda el par de mensajes."""
+    previous = []
+    if conversation is not None:
+        recent = db.scalars(
+            select(Message)
+            .where(Message.conversation_id == conversation.id)
+            .order_by(Message.id.desc())
+            .limit(HISTORY_MESSAGES)
+        )
+        previous = [(m.role.value, m.content) for m in reversed(list(recent))]
+    conversation_id = conversation.id if conversation else None
+    filters = body.model_dump(exclude={"question", "mode"})
+    try:  # el rollback previo a la llamada al LLM expira `conversation`
+        result = query.ask(db, body.question, mode=body.mode, history=previous, **filters)
+    except (ProviderError, OSError) as exc:
+        raise ai_unavailable(exc, "El servicio de respuestas no está disponible.") from exc
+    answer_status, content, valid = citations.validate(db, result)
+    now = datetime.now(UTC)
+    if conversation_id is None:
+        title = " ".join(body.question.split())
+        conversation = Conversation(
+            user_id=user_id,
+            title=title if len(title) <= 80 else title[:79] + "…",
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(conversation)
+        db.flush()
+        db.add(
+            HistoryEntry(
+                user_id=user_id,
+                action=HistoryAction.CONVERSATION,
+                summary=conversation.title,
+                conversation_id=conversation.id,
+            )
+        )
+    else:
+        conversation = owned_conversation(db, conversation_id, user_id)
+        conversation.updated_at = now
+    answer = Answer(
+        user_id=user_id,
+        kind=AnswerKind.QUERY,
+        status=answer_status,
+        question=body.question,
+        content=content,
+        citations=valid,
+        **filters,
+    )
+    db.add(answer)
+    db.flush()
+    asked = Message(conversation_id=conversation.id, role=MessageRole.USER, content=body.question)
+    reply = Message(
+        conversation_id=conversation.id,
+        role=MessageRole.ASSISTANT,
+        content=content,
+        answer_id=answer.id,
+    )
+    db.add_all([asked, reply])
+    db.commit()
+    return TurnOut(
+        conversation=ConversationOut.model_validate(conversation, from_attributes=True),
+        messages=[message_out(asked), message_out(reply)],
+    )
+
+
+@router.post(
+    "/conversations",
+    response_model=TurnOut,
+    status_code=201,
+    responses={503: {"model": ErrorResponse}},
+    dependencies=AI,
+    tags=["conversaciones"],
+)
+def create_conversation(
+    body: TurnRequest,
+    user: Annotated[User, Depends(current_user)],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Estudiante, Profesor. Abre una conversación con su primera pregunta (título derivado)."""
+    return run_turn(db, user.id, None, body)
+
+
+@router.post(
+    "/conversations/{conversation_id}/messages",
+    response_model=TurnOut,
+    status_code=201,
+    responses=NOT_FOUND | {503: {"model": ErrorResponse}},
+    dependencies=AI,
+    tags=["conversaciones"],
+)
+def send_message(
+    conversation_id: Id,
+    body: TurnRequest,
+    user: Annotated[User, Depends(current_user)],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Propietario. Pregunta de seguimiento: usa los últimos turnos como contexto."""
+    user_id = user.id
+    conversation = owned_conversation(db, conversation_id, user_id)
+    return run_turn(db, user_id, conversation, body)
+
+
+@router.get(
+    "/conversations",
+    response_model=list[ConversationOut],
+    dependencies=STUDY,
+    tags=["conversaciones"],
+)
+def list_conversations(
+    user: Annotated[User, Depends(current_user)],
+    db: Annotated[Session, Depends(get_db)],
+    limit: Annotated[Limit, Query()] = 20,
+    offset: Annotated[Offset, Query()] = 0,
+) -> list[ConversationOut]:
+    """Propietario. Conversaciones propias, la de actividad más reciente primero."""
+    rows = db.scalars(
+        select(Conversation)
+        .where(Conversation.user_id == user.id)
+        .order_by(Conversation.updated_at.desc(), Conversation.id.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    return [ConversationOut.model_validate(row, from_attributes=True) for row in rows]
+
+
+@router.get(
+    "/conversations/{conversation_id}",
+    response_model=ConversationDetail,
+    responses=NOT_FOUND,
+    dependencies=STUDY,
+    tags=["conversaciones"],
+)
+def get_conversation(
+    conversation_id: Id,
+    user: Annotated[User, Depends(current_user)],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Propietario. El hilo completo con las citas de cada respuesta."""
+    conversation = owned_conversation(db, conversation_id, user.id)
+    return ConversationDetail(
+        **ConversationOut.model_validate(conversation, from_attributes=True).model_dump(),
+        messages=[message_out(m) for m in conversation.messages],
+    )
+
+
+def delete_conversations(db: Session, conversation_ids: list[int]) -> None:
+    """Borra hilos con sus mensajes, respuestas, citas y entradas de historial."""
+    if not conversation_ids:
+        return
+    answer_ids = list(
+        db.scalars(
+            select(Message.answer_id).where(
+                Message.conversation_id.in_(conversation_ids), Message.answer_id.is_not(None)
+            )
+        )
+    )
+    db.execute(delete(HistoryEntry).where(HistoryEntry.conversation_id.in_(conversation_ids)))
+    db.execute(delete(Message).where(Message.conversation_id.in_(conversation_ids)))
+    db.execute(delete(Conversation).where(Conversation.id.in_(conversation_ids)))
+    delete_answers(db, answer_ids)
+
+
+@router.delete(
+    "/conversations/{conversation_id}",
+    status_code=204,
+    responses=NOT_FOUND,
+    dependencies=STUDY,
+    tags=["conversaciones"],
+)
+def delete_conversation(
+    conversation_id: Id,
+    user: Annotated[User, Depends(current_user)],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Propietario. Borra la conversación, sus respuestas y su entrada de historial."""
+    owned_conversation(db, conversation_id, user.id)
+    delete_conversations(db, [conversation_id])
+    db.commit()
+
+
 @router.get(
     "/answers/{answer_id}", response_model=AnswerOut, responses=NOT_FOUND, tags=["consulta"]
 )
 def get_answer(
-    answer_id: int,
+    answer_id: Id,
     user: Annotated[User, Depends(current_user)],
     db: Annotated[Session, Depends(get_db)],
 ):
@@ -356,7 +595,7 @@ def retire_document(
 )
 def get_page(
     document_id: str,
-    page_number: int,
+    page_number: Id,
     user: Annotated[User, Depends(current_user)],
     db: Annotated[Session, Depends(get_db)],
 ):
@@ -375,21 +614,24 @@ def get_page(
 # CU-04
 
 
+STUDY_ACTIONS = (HistoryAction.QUERY, HistoryAction.GENERATION, HistoryAction.CONVERSATION)
+
+
 @router.get(
     "/history", response_model=list[HistoryEntryOut], dependencies=STUDY, tags=["historial"]
 )
 def list_history(
     user: Annotated[User, Depends(current_user)],
     db: Annotated[Session, Depends(get_db)],
-    limit: Annotated[int, Query(ge=1, le=100)] = 20,
-    offset: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[Limit, Query()] = 20,
+    offset: Annotated[Offset, Query()] = 0,
 ) -> list[HistoryEntryOut]:
-    """Estudiante, Profesor. Consultas y generaciones propias, más recientes primero."""
+    """Estudiante, Profesor. Consultas, conversaciones y generaciones propias, recientes primero."""
     statement = (
         select(HistoryEntry)
         .where(
             HistoryEntry.user_id == user.id,
-            HistoryEntry.action.in_((HistoryAction.QUERY, HistoryAction.GENERATION)),
+            HistoryEntry.action.in_(STUDY_ACTIONS),
         )
         .order_by(HistoryEntry.created_at.desc(), HistoryEntry.id.desc())
         .limit(limit)
@@ -403,11 +645,21 @@ def delete_answers(db: Session, answer_ids: list[int]) -> None:
     """Borra respuestas y citas; el feedback queda desvinculado."""
     if not answer_ids:
         return
-    db.execute(
-        update(Feedback).where(Feedback.answer_id.in_(answer_ids)).values(answer_id=None)
-    )
+    db.execute(update(Feedback).where(Feedback.answer_id.in_(answer_ids)).values(answer_id=None))
     db.execute(delete(Citation).where(Citation.answer_id.in_(answer_ids)))
     db.execute(delete(Answer).where(Answer.id.in_(answer_ids)))
+
+
+def delete_exams(db: Session, exam_ids: list[int]) -> None:
+    """Borra exámenes con preguntas (y claves de corrección), citas y entradas de historial."""
+    if not exam_ids:
+        return
+    questions = select(ExamQuestion.id).where(ExamQuestion.exam_id.in_(exam_ids))
+    db.execute(delete(Citation).where(Citation.question_id.in_(questions)))
+    db.execute(update(Feedback).where(Feedback.exam_id.in_(exam_ids)).values(exam_id=None))
+    db.execute(delete(HistoryEntry).where(HistoryEntry.exam_id.in_(exam_ids)))
+    db.execute(delete(ExamQuestion).where(ExamQuestion.exam_id.in_(exam_ids)))
+    db.execute(delete(Exam).where(Exam.id.in_(exam_ids)))
 
 
 def deletable_history(
@@ -420,21 +672,27 @@ def deletable_history(
 
 
 @router.delete(
-    "/history/{entry_id}", status_code=204, responses=NOT_FOUND, dependencies=STUDY,
+    "/history/{entry_id}",
+    status_code=204,
+    responses=NOT_FOUND,
+    dependencies=STUDY,
     tags=["historial"],
 )
 def delete_history_entry(
-    entry_id: int,
+    entry_id: Id,
     user: Annotated[User, Depends(current_user)],
     db: Annotated[Session, Depends(get_db)],
 ):
-    """Autor. Borra una consulta o generación y su respuesta guardada."""
-    entry = deletable_history(
-        db, entry_id, user, (HistoryAction.QUERY, HistoryAction.GENERATION)
-    )
-    if entry.answer_id is not None:
-        delete_answers(db, [entry.answer_id])
-    db.delete(entry)
+    """Autor. Borra una consulta, generación, conversación o examen y sus datos guardados."""
+    entry = deletable_history(db, entry_id, user, (*STUDY_ACTIONS, HistoryAction.EXAM))
+    if entry.exam_id is not None:
+        delete_exams(db, [entry.exam_id])
+    elif entry.conversation_id is not None:
+        delete_conversations(db, [entry.conversation_id])
+    else:
+        if entry.answer_id is not None:
+            delete_answers(db, [entry.answer_id])
+        db.delete(entry)
     db.commit()
 
 
@@ -443,8 +701,12 @@ def clear_history(
     user: Annotated[User, Depends(current_user)],
     db: Annotated[Session, Depends(get_db)],
 ):
-    """Autor. Borra todas sus consultas y generaciones con sus respuestas."""
-    study = (HistoryAction.QUERY, HistoryAction.GENERATION)
+    """Autor. Borra todas sus consultas, conversaciones, generaciones y exámenes."""
+    study = STUDY_ACTIONS
+    delete_exams(db, list(db.scalars(select(Exam.id).where(Exam.user_id == user.id))))
+    delete_conversations(
+        db, list(db.scalars(select(Conversation.id).where(Conversation.user_id == user.id)))
+    )
     answer_ids = list(
         db.scalars(
             select(HistoryEntry.answer_id).where(
@@ -456,9 +718,7 @@ def clear_history(
     )
     delete_answers(db, answer_ids)
     db.execute(
-        delete(HistoryEntry).where(
-            HistoryEntry.user_id == user.id, HistoryEntry.action.in_(study)
-        )
+        delete(HistoryEntry).where(HistoryEntry.user_id == user.id, HistoryEntry.action.in_(study))
     )
     db.commit()
 
@@ -466,24 +726,81 @@ def clear_history(
 # CU-06
 
 
+STALE_EXAM = timedelta(minutes=10)  # más allá, el proceso que lo generaba se reinició
+
+
+def run_exam(bind, exam_id: int, provider: str, kinds: list[str], passages: list[dict]) -> None:
+    """Segundo plano: genera las preguntas con su propia sesión y deja el examen ready o failed."""
+    with Session(bind) as db:
+        exam = db.get(Exam, exam_id)
+        if exam is None:  # borrado mientras se generaba
+            return
+        try:
+            questions, minutes = exams.build(db, provider, kinds, passages, exam.difficulty)
+            exam.questions = questions
+            exam.duration_minutes, exam.question_count, exam.status = (
+                minutes,
+                len(questions),
+                "ready",
+            )
+        except (ProviderError, OSError, HTTPException) as exc:
+            db.rollback()
+            if isinstance(exc, HTTPException):
+                error = exc.detail
+            else:
+                ai_unavailable(exc, "")  # solo registra la causa
+                error = (
+                    "El servicio de generación de exámenes no está disponible. Inténtelo de nuevo."
+                )
+            exam = db.get(Exam, exam_id)
+            exam.status, exam.error = "failed", error
+        db.commit()
+
+
+def expire_stale(db: Session, rows: list[Exam]) -> None:
+    """Un examen pendiente demasiado viejo se da por fallido (el proceso se reinició)."""
+    limit = datetime.now(UTC) - STALE_EXAM
+    for exam in rows:
+        created = exam.created_at if exam.created_at.tzinfo else exam.created_at.replace(tzinfo=UTC)
+        if exam.status == "pending" and created < limit:
+            exam.status, exam.error = (
+                "failed",
+                "La generación se interrumpió. Genere el examen de nuevo.",
+            )
+    db.commit()
+
+
 @router.post(
-    "/exams", response_model=ExamOut, status_code=201, dependencies=STUDY, tags=["examenes"]
+    "/exams",
+    response_model=ExamOut,
+    status_code=202,
+    dependencies=AI,
+    tags=["examenes"],
 )
 def create_exam(
     body: ExamRequest,
+    background: BackgroundTasks,
     user: Annotated[User, Depends(current_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> ExamOut:
-    """Estudiante, Profesor. Genera el examen; las respuestas no se incluyen."""
-    exam = Exam(user_id=user.id, questions=exams.make_questions(db, body), **body.model_dump())
+    """Estudiante, Profesor. Encola la generación del examen mixto; consultar `GET /exams/{id}`."""
+    user_id = user.id
+    provider, kinds, passages = exams.prepare(db, body)
+    exam = Exam(
+        user_id=user_id,
+        status="pending",
+        duration_minutes=0,
+        **body.model_dump(exclude={"types"}),
+    )
     db.add(exam)
     db.flush()
     db.add(
         HistoryEntry(
-            user_id=user.id, action=HistoryAction.EXAM, summary=exam.subject, exam_id=exam.id
+            user_id=user_id, action=HistoryAction.EXAM, summary=exam.subject, exam_id=exam.id
         )
     )
     db.commit()
+    background.add_task(run_exam, db.get_bind(), exam.id, provider, kinds, passages)
     return ExamOut.model_validate(exam, from_attributes=True)
 
 
@@ -491,15 +808,21 @@ def create_exam(
 def list_exams(
     user: Annotated[User, Depends(current_user)],
     db: Annotated[Session, Depends(get_db)],
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    offset: Annotated[int, Query(ge=0, le=1_000_000)] = 0,
 ) -> list[ExamOut]:
-    """Estudiante, Profesor. Exámenes propios."""
+    """Estudiante, Profesor. Exámenes propios, más recientes primero."""
     statement = (
         select(Exam)
         .where(Exam.user_id == user.id)
         .options(selectinload(Exam.questions))
         .order_by(Exam.created_at.desc(), Exam.id.desc())
+        .limit(limit)
+        .offset(offset)
     )
-    return [ExamOut.model_validate(exam, from_attributes=True) for exam in db.scalars(statement)]
+    rows = list(db.scalars(statement))
+    expire_stale(db, rows)
+    return [ExamOut.model_validate(exam, from_attributes=True) for exam in rows]
 
 
 def owned_exam(db: Session, exam_id: int, user: User) -> Exam:
@@ -507,6 +830,24 @@ def owned_exam(db: Session, exam_id: int, user: User) -> Exam:
     if exam is None or exam.user_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Examen no encontrado.")
     return exam
+
+
+@router.delete(
+    "/exams/{exam_id}",
+    status_code=204,
+    responses=NOT_FOUND,
+    dependencies=STUDY,
+    tags=["examenes"],
+)
+def delete_exam(
+    exam_id: Id,
+    user: Annotated[User, Depends(current_user)],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Autor del examen. Borra el examen, su clave de corrección y su entrada de historial."""
+    owned_exam(db, exam_id, user)
+    delete_exams(db, [exam_id])
+    db.commit()
 
 
 @router.get(
@@ -517,12 +858,14 @@ def owned_exam(db: Session, exam_id: int, user: User) -> Exam:
     tags=["examenes"],
 )
 def get_exam(
-    exam_id: int,
+    exam_id: Id,
     user: Annotated[User, Depends(current_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> ExamOut:
     """Autor del examen."""
-    return ExamOut.model_validate(owned_exam(db, exam_id, user), from_attributes=True)
+    exam = owned_exam(db, exam_id, user)
+    expire_stale(db, [exam])
+    return ExamOut.model_validate(exam, from_attributes=True)
 
 
 @router.get(
@@ -533,7 +876,7 @@ def get_exam(
     tags=["examenes"],
 )
 def get_exam_answers(
-    exam_id: int,
+    exam_id: Id,
     user: Annotated[User, Depends(current_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> list[ExamAnswerOut]:
@@ -550,10 +893,68 @@ def get_exam_answers(
             question_id=question.id,
             position=question.position,
             answer=question.answer,
+            criteria=question.criteria,
             citations=[citation_out(citation) for citation in question.citations],
         )
         for question in questions
     ]
+
+
+PDF = {200: {"content": {"application/pdf": {}}}, 409: {"model": ErrorResponse}, **NOT_FOUND}
+
+
+def pdf_response(content: bytes, filename: str) -> Response:
+    return Response(
+        content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def exam_with_citations(db: Session, exam_id: int, user: User) -> Exam:
+    exam = owned_exam(db, exam_id, user)
+    expire_stale(db, [exam])
+    if exam.status != "ready":
+        raise HTTPException(status.HTTP_409_CONFLICT, "El examen todavía no está listo.")
+    return db.scalars(
+        select(Exam)
+        .where(Exam.id == exam_id)
+        .options(selectinload(Exam.questions).selectinload(ExamQuestion.citations))
+    ).one()
+
+
+@router.get(
+    "/exams/{exam_id}/pdf",
+    response_class=Response,
+    responses=PDF,
+    dependencies=STUDY,
+    tags=["examenes"],
+)
+def get_exam_pdf(
+    exam_id: Id,
+    user: Annotated[User, Depends(current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> Response:
+    """Autor del examen. PDF para el estudiante, sin soluciones."""
+    exam = exam_with_citations(db, exam_id, user)
+    return pdf_response(exam_pdf.exam_pdf(exam), f"examen-{exam.id}.pdf")
+
+
+@router.get(
+    "/exams/{exam_id}/answers/pdf",
+    response_class=Response,
+    responses=PDF,
+    dependencies=STUDY,
+    tags=["examenes"],
+)
+def get_exam_key_pdf(
+    exam_id: Id,
+    user: Annotated[User, Depends(current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> Response:
+    """Autor del examen. Clave de corrección con soluciones, puntuación y citas."""
+    exam = exam_with_citations(db, exam_id, user)
+    return pdf_response(exam_pdf.key_pdf(exam), f"clave-examen-{exam.id}.pdf")
 
 
 # CU-10

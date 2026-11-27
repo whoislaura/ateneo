@@ -5,9 +5,11 @@ from datetime import datetime
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
+    DDL,
     CheckConstraint,
     DateTime,
     Enum,
+    Float,
     ForeignKey,
     ForeignKeyConstraint,
     Index,
@@ -16,8 +18,12 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    event,
     func,
     true,
+)
+from sqlalchemy import (
+    text as sql_text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -76,6 +82,14 @@ class Difficulty(enum.StrEnum):
     HARD = "hard"
 
 
+class QuestionKind(enum.StrEnum):
+    COMPLETION = "completion"  # exámenes antiguos: completar fragmento
+    DEVELOPMENT = "development"
+    CASE = "case"
+    MULTIPLE_CHOICE = "multiple_choice"
+    TRUE_FALSE = "true_false"
+
+
 class HistoryAction(enum.StrEnum):
     QUERY = "query"
     GENERATION = "generation"
@@ -83,6 +97,12 @@ class HistoryAction(enum.StrEnum):
     DOCUMENT_UPLOAD = "document_upload"
     DOCUMENT_UPDATE = "document_update"
     DOCUMENT_RETIRE = "document_retire"
+    CONVERSATION = "conversation"  # migración 0005
+
+
+class MessageRole(enum.StrEnum):
+    USER = "user"
+    ASSISTANT = "assistant"
 
 
 class FeedbackKind(enum.StrEnum):
@@ -168,6 +188,12 @@ class Chunk(Base):
         CheckConstraint(
             "start_offset >= 0 AND end_offset > start_offset", name="ck_chunks_offsets"
         ),
+        # Texto completo (migración 0004, que crea `ateneo_unaccent`); solo PostgreSQL.
+        Index(
+            "ix_chunks_text_fts",
+            sql_text("to_tsvector('spanish'::regconfig, ateneo_unaccent(text))"),
+            postgresql_using="gin",
+        ).ddl_if(dialect="postgresql"),
     )
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)  # chunk_id de la ingestión
@@ -180,6 +206,16 @@ class Chunk(Base):
     text: Mapped[str] = mapped_column(Text)
     # shortcut: sin dimensión ni índice ANN hasta elegir el modelo de embeddings (AT-14).
     embedding: Mapped[list[float] | None] = mapped_column(Vector())
+
+
+# create_all (tests) no pasa por la migración 0004: crea lo que necesita ix_chunks_text_fts.
+for _ddl in (
+    "CREATE EXTENSION IF NOT EXISTS unaccent WITH SCHEMA public",
+    "CREATE OR REPLACE FUNCTION public.ateneo_unaccent(text) RETURNS text "
+    "LANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT "
+    "AS $$ SELECT public.unaccent('public.unaccent'::regdictionary, $1) $$",
+):
+    event.listen(Chunk.__table__, "before_create", DDL(_ddl).execute_if(dialect="postgresql"))
 
 
 class Answer(Base):
@@ -204,11 +240,46 @@ class Answer(Base):
     citations: Mapped[list["Citation"]] = relationship(order_by="Citation.position")
 
 
+class Conversation(Base):
+    """Hilo de chat de CU-01 con memoria: cada turno es un par de mensajes."""
+
+    __tablename__ = "conversations"
+    __table_args__ = (Index("ix_conversations_user_updated", "user_id", "updated_at"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    title: Mapped[str] = mapped_column(String(200))  # primera pregunta, recortada
+    created_at: Mapped[datetime] = created_at()
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    messages: Mapped[list["Message"]] = relationship(order_by="Message.id")
+
+
+class Message(Base):
+    """Mensaje del hilo. El del asistente apunta a su `Answer`, que guarda estado y citas."""
+
+    __tablename__ = "messages"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    conversation_id: Mapped[int] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), index=True
+    )
+    role: Mapped[MessageRole] = mapped_column(enum_type(MessageRole, "message_role"))
+    content: Mapped[str] = mapped_column(Text)
+    answer_id: Mapped[int | None] = mapped_column(
+        ForeignKey("answers.id", ondelete="SET NULL"), index=True
+    )
+    created_at: Mapped[datetime] = created_at()
+
+    answer: Mapped["Answer | None"] = relationship()
+
+
 class Exam(Base):
     __tablename__ = "exams"
     __table_args__ = (
         CheckConstraint("year BETWEEN 1 AND 4", name="ck_exams_year"),
         CheckConstraint("question_count BETWEEN 1 AND 50", name="ck_exams_question_count"),
+        CheckConstraint("status IN ('pending', 'ready', 'failed')", name="ck_exams_status"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -218,20 +289,38 @@ class Exam(Base):
     topic: Mapped[str | None] = mapped_column(Text)
     difficulty: Mapped[Difficulty] = mapped_column(enum_type(Difficulty, "exam_difficulty"))
     question_count: Mapped[int] = mapped_column(SmallInteger)
+    duration_minutes: Mapped[int] = mapped_column(SmallInteger, server_default="30")
+    status: Mapped[str] = mapped_column(String(10), server_default="ready")  # pending|ready|failed
+    error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = created_at()
 
     questions: Mapped[list["ExamQuestion"]] = relationship(order_by="ExamQuestion.position")
 
+    @property
+    def total_points(self) -> float:
+        return round(sum(question.points for question in self.questions), 2)
+
 
 class ExamQuestion(Base):
     __tablename__ = "exam_questions"
-    __table_args__ = (UniqueConstraint("exam_id", "position"),)
+    __table_args__ = (
+        UniqueConstraint("exam_id", "position"),
+        CheckConstraint(
+            "kind IN ('completion', 'development', 'case', 'multiple_choice', 'true_false')",
+            name="ck_exam_questions_kind",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     exam_id: Mapped[int] = mapped_column(ForeignKey("exams.id", ondelete="CASCADE"))
     position: Mapped[int] = mapped_column(SmallInteger)
     statement: Mapped[str] = mapped_column(Text)
     answer: Mapped[str] = mapped_column(Text)
+    # Los exámenes anteriores a la 0006 son de completar fragmento, con 1 punto cada pregunta.
+    kind: Mapped[str] = mapped_column(String(20), server_default="completion")
+    options: Mapped[list | None] = mapped_column(JSONB)  # cuatro opciones de las de test
+    points: Mapped[float] = mapped_column(Float, default=1.0, server_default="1")
+    criteria: Mapped[str | None] = mapped_column(Text)
 
     citations: Mapped[list["Citation"]] = relationship(order_by="Citation.position")
 
@@ -287,6 +376,10 @@ class HistoryEntry(Base):
         ForeignKey("exams.id", ondelete="SET NULL"), index=True
     )
     document_id: Mapped[str | None] = mapped_column(ForeignKey("documents.id", ondelete="SET NULL"))
+    # Una conversación aparece una vez en el historial y se borra con ella.
+    conversation_id: Mapped[int | None] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), index=True
+    )
     created_at: Mapped[datetime] = created_at()
 
 

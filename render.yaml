@@ -23,9 +23,15 @@ services:
       # Las respuestas desarrolladas del modelo gratuito pueden pasar de 60 s; Nginx/Render cortan antes de 120 s.
       - key: ATENEO_LLM_TIMEOUT
         value: "100"
+      # Esfuerzo de razonamiento (low, medium, high o vacío): sin límite, el modelo agota max_tokens pensando.
+      - key: ATENEO_LLM_REASONING
+        value: low
       # Fase 1: embeddings de prueba; cambiarlos obliga a resubir el corpus.
       - key: ATENEO_EMBEDDER
         value: fake
+      # Con embeddings fake el vector solo no encuentra citas literales; el texto completo sí.
+      - key: ATENEO_RETRIEVAL
+        value: hybrid
       - key: ATENEO_MAX_UPLOAD_MB
         value: "20"
 

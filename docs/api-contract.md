@@ -19,7 +19,7 @@ Todo error de `/api/v1` usa la misma forma:
 {"error": {"code": "validation_error", "message": "Solicitud inválida.", "details": [...]}}
 ```
 
-`code` es estable y legible por máquina; `message` se puede mostrar; `details` es opcional (en 422 contiene la lista de campos inválidos de FastAPI con `loc`, `msg` y `type`). Códigos usados: 401 `unauthorized`, 403 `forbidden`, 404 `not_found`, 409 `conflict`, 413 `request_entity_too_large`, 422 `validation_error`, 429 `too_many_requests` (con cabecera `Retry-After` en segundos), 501 `not_implemented`, 503 `service_unavailable` (el proveedor de IA o de embeddings falló o está mal configurado; no se guarda nada). Cambiar esta forma exige una nueva versión de la API (`/api/v2`).
+`code` es estable y legible por máquina; `message` se puede mostrar; `details` es opcional (en 422 contiene la lista de campos inválidos de FastAPI con `loc`, `msg` y `type`; nunca el valor enviado). Los ids enteros de ruta, cuerpo y filtros deben estar en 1..2147483647 y los `offset` en 0..1000000; fuera de rango es 422. Códigos usados: 401 `unauthorized`, 403 `forbidden`, 404 `not_found`, 409 `conflict`, 413 `request_entity_too_large`, 422 `validation_error`, 429 `too_many_requests` (con cabecera `Retry-After` en segundos), 501 `not_implemented`, 503 `service_unavailable` (el proveedor de IA o de embeddings falló o está mal configurado; no se guarda nada). Cambiar esta forma exige una nueva versión de la API (`/api/v2`).
 
 ## Roles
 
@@ -57,6 +57,11 @@ Cada usuario tiene un único rol. Sin sesión válida: 401. Sin permiso: 403. Re
 | `GET /auth/me` | CU-00 | AT-08 | Todos | `UserOut` |
 | `POST /queries` | CU-01, CU-05 | AT-09, AT-12 | Estudiante, Profesor | 201 `AnswerOut` |
 | `POST /generations` | CU-02, CU-05 | AT-12 | Estudiante, Profesor | 201 `AnswerOut` |
+| `POST /conversations` | CU-01, CU-05 | AT-09 | Estudiante, Profesor | 201 `TurnOut`; abre una conversación con su primera pregunta (título derivado de ella) |
+| `POST /conversations/{conversation_id}/messages` | CU-01, CU-05 | AT-09 | Propietario | 201 `TurnOut`; pregunta de seguimiento con memoria. 404 si es de otro usuario |
+| `GET /conversations` | CU-04 | AT-11 | Estudiante, Profesor | `ConversationOut[]` propias, de actividad más reciente a más antigua. `limit` de 1 a 100 (20 por defecto), `offset` desde 0 |
+| `GET /conversations/{conversation_id}` | CU-04 | AT-11 | Propietario | `ConversationDetail`: hilo completo con las citas de cada respuesta. 404 si es de otro |
+| `DELETE /conversations/{conversation_id}` | CU-04 | AT-11 | Propietario | 204; borra mensajes, respuestas, citas y su entrada de historial |
 | `GET /answers/{answer_id}` | CU-04 | AT-11 | Autor | `AnswerOut` |
 | `GET /documents` | CU-03 | AT-10 | Todos | `DocumentOut[]`; filtros `year`, `subject`, `topic`, `include_retired` |
 | `POST /documents` | CU-03 | AT-10 | Profesor, Administrador | 201 `IngestionReport`; 409 si el identificador existe |
@@ -64,13 +69,16 @@ Cada usuario tiene un único rol. Sin sesión válida: 401. Sin permiso: 403. Re
 | `PUT /documents/{document_id}` | CU-03 | AT-10 | Profesor, Administrador | `IngestionReport` tras reindexar |
 | `DELETE /documents/{document_id}` | CU-03 | AT-10 | Profesor, Administrador | 204; retira, no borra |
 | `GET /documents/{document_id}/pages/{page_number}` | CU-05 | AT-12 | Todos | `PageOut` para verificar una cita |
-| `GET /history` | CU-04 | AT-11 | Estudiante, Profesor | `HistoryEntryOut[]` de consultas y generaciones propias, más recientes primero. `limit` de 1 a 100 (20 por defecto), `offset` desde 0 |
-| `DELETE /history/{entry_id}` | CU-04 | AT-11 | Autor | 204; borra la consulta o generación y su respuesta guardada |
-| `DELETE /history` | CU-04 | AT-11 | Autor | 204; borra todas sus consultas y generaciones con sus respuestas |
-| `POST /exams` | CU-06 | AT-27 | Estudiante, Profesor | 201 `ExamOut` sin respuestas. 422 si el corpus no permite generar la cantidad solicitada |
-| `GET /exams` | CU-06 | AT-27 | Estudiante, Profesor | `ExamOut[]` propios |
-| `GET /exams/{exam_id}` | CU-06 | AT-27 | Autor | `ExamOut` |
+| `GET /history` | CU-04 | AT-11 | Estudiante, Profesor | `HistoryEntryOut[]` de consultas, conversaciones (`action: conversation`, con `conversation_id`) y generaciones propias, más recientes primero. `limit` de 1 a 100 (20 por defecto), `offset` desde 0 |
+| `DELETE /history/{entry_id}` | CU-04 | AT-11 | Autor | 204; borra la consulta, generación, conversación (con sus mensajes) o examen (con su clave) y sus datos guardados |
+| `DELETE /history` | CU-04 | AT-11 | Autor | 204; borra todas sus consultas, conversaciones, generaciones y exámenes con sus respuestas |
+| `POST /exams` | CU-06 | AT-27 | Estudiante, Profesor | 202 `ExamOut` con `status` `pending` y sin preguntas: la generación sigue en segundo plano (consultar `GET /exams/{exam_id}`). 422 si el corpus no tiene material con esos filtros. Los fallos de generación (sin respaldo verificable para la mitad de las preguntas, proveedor de IA caído) no son un error HTTP: el examen queda en `failed` con `error` |
+| `GET /exams` | CU-06 | AT-27 | Estudiante, Profesor | `ExamOut[]` propios, más recientes primero. `limit` de 1 a 100 (20 por defecto), `offset` desde 0 |
+| `GET /exams/{exam_id}` | CU-06 | AT-27 | Autor | `ExamOut`; `status` es `pending`, `ready` o `failed` (con `error` legible). Un `pending` de más de 10 minutos se informa como `failed` (el servidor se reinició) |
+| `DELETE /exams/{exam_id}` | CU-06 | | Autor | 204; borra el examen, su clave de corrección, citas y entrada de historial. 404 si es de otro usuario |
 | `GET /exams/{exam_id}/answers` | CU-06, CU-05 | AT-27 | Autor | `ExamAnswerOut[]` con citas |
+| `GET /exams/{exam_id}/pdf` | CU-06 | | Autor | `application/pdf`: examen para el estudiante, sin soluciones. 409 si el examen no está `ready` |
+| `GET /exams/{exam_id}/answers/pdf` | CU-06, CU-05 | | Autor | `application/pdf`: clave de corrección con soluciones, puntuación y citas. 409 si el examen no está `ready` |
 | `POST /feedback` | CU-10 | AT-28 | Todos | 201 `FeedbackOut`. 404 si la referencia a una respuesta o examen no existe o pertenece a otro usuario |
 | `GET /admin/stats` | — | #29 | Administrador | `AdminStats` |
 | `GET /admin/users` | — | #29 | Administrador | `AdminUserOut[]`; filtros `q`, `role`, `limit`, `offset` |
@@ -94,14 +102,14 @@ Implementado en `backend/app/corpus.py`; las rutas de `api.py` solo lo invocan.
 - **Subir** (`POST /documents`): `document_id` de 1 a 200 caracteres `[A-Za-z0-9._-]`, empezando por letra o número (va en la URL). 409 si ya existe, también si está retirado: para reutilizarlo se sustituye con `PUT`.
 - **Archivo**: debe empezar por `%PDF-` (si no, 422). Límite `ATENEO_MAX_UPLOAD_MB` (entero, 20 por defecto): por encima, 413. La extracción es la de la [ingestión](ingestion.md): un PDF cifrado, dañado o sin ningún texto extraíble devuelve 422 con el motivo en `message`. `filename` guarda el nombre enviado, sin ruta.
 - **Indexación**: síncrona dentro de la petición, con `vector.store_document` y el embedder de `ATENEO_EMBEDDER` (`fake` por defecto; el mismo que usa la consulta). Si falla el proveedor de embeddings: 503 y no cambia nada.
-- **Actualizar** (`PUT /documents/{id}`): 404 si no existe. Sustituye PDF y metadatos y reindexa en una transacción: la versión anterior sigue vigente hasta el `COMMIT` y se conserva entera si algo falla. Tras el cambio solo se recuperan fragmentos de la versión nueva. Las citas ya guardadas no se tocan (son copia; su `chunk_id` pasa a nulo) y siguen legibles en `GET /answers/{id}`; el visor avisa de que la versión cambió. Un documento retirado vuelve a estar vigente al sustituirlo.
+- **Actualizar** (`PUT /documents/{id}`): 404 si no existe. Sustituye PDF y metadatos y reindexa en una transacción: la versión anterior sigue vigente hasta el `COMMIT` y se conserva entera si algo falla. Tras el cambio solo se recuperan fragmentos de la versión nueva. Las citas ya guardadas no se tocan (son copia; su `chunk_id` pasa a nulo) y siguen legibles en `GET /answers/{id}`; el visor avisa de que la versión cambió. Un documento retirado vuelve a estar vigente al sustituirlo. Si el PDF es idéntico a la versión vigente (mismo SHA-256), la operación es idempotente: 200 con el mismo `version`, solo se actualizan los metadatos y no se recalculan embeddings ni fragmentos (las citas vigentes conservan su `chunk_id`).
 - **Retirar** (`DELETE /documents/{id}`): 404 si no existe; idempotente (204 también si ya estaba retirado, sin repetir el historial). Marca `status = retired` sin borrar páginas, fragmentos ni citas. Desde ese momento no se recupera en consultas ni valida citas nuevas (`no_evidence` si era la única fuente).
 - **Listar y leer**: `GET /documents` ordena por año, asignatura y título; `subject` y `topic` se comparan sin mayúsculas ni espacios extremos, como en la consulta. `include_retired=true` es 403 para Estudiante. Para Estudiante, un documento retirado es 404 en `GET /documents/{id}` y en `GET /documents/{id}/pages/{n}`; Profesor y Administrador sí lo leen.
 - **Historial**: subir, actualizar y retirar añaden una entrada `document_upload`, `document_update` o `document_retire` con el título y `document_id`. `documents.uploaded_by` guarda quién subió la versión vigente. La entrada se escribe justo después de la transacción de reindexación, no dentro de ella.
 
 `shortcut:` el PDF se procesa de forma síncrona y en memoria, y Starlette recibe el cuerpo entero antes de comprobar el límite; Nginx corta en 25 MB con `client_max_body_size` (ver [despliegue](deployment.md#límites-de-subida)). Basta para el tamaño del corpus del MVP; pasar a una cola de trabajos (respuesta 202 y estado `processing`) cuando las subidas tarden más que el timeout del proxy o se usen embeddings remotos con documentos grandes.
 
-`POST /generations` recibe `format` (`summary`, `outline`, `table`, `diagram`) y `prompt`; el contenido se devuelve como texto estructurado en `content` (ver [Generación](#generación-cu-02-at-17)). `POST /exams` recibe año, asignatura, tema opcional, `question_count` (1–50) y `difficulty` (`easy`, `medium`, `hard`). `POST /feedback` recibe `kind`: `rating` exige `rating` de 1 a 5; `error` y `suggestion` exigen `comment`. `answer_id` y `exam_id` vinculan opcionalmente el feedback.
+`POST /generations` recibe `format` (`summary`, `outline`, `table`, `diagram`) y `prompt`; el contenido se devuelve como texto estructurado en `content` (ver [Generación](#generación-cu-02-at-17)). `POST /exams` recibe año, asignatura, tema opcional, `question_count` (1–20), `difficulty` (`easy`, `medium`, `hard`) y `types` opcional (lista no vacía de `multiple_choice`, `true_false`, `development`, `case`; por defecto, examen mixto). `POST /feedback` recibe `kind`: `rating` exige `rating` de 1 a 5; `error` y `suggestion` exigen `comment`. `answer_id` y `exam_id` vinculan opcionalmente el feedback.
 
 ## Administración
 
@@ -131,6 +139,21 @@ Toda respuesta de CU-01 y CU-02 es un `AnswerOut` con `status`:
 ```json
 {"question": "¿Qué requisitos tiene la usucapión?", "year": 2, "mode": "desarrollada"}
 ```
+
+### Chat con memoria (CU-01)
+
+La pantalla Consulta es un chat. `POST /conversations` y `POST /conversations/{id}/messages` reciben `question` (1–1000 caracteres) y los filtros opcionales `year`, `subject`, `topic` (los filtros valen por turno) y `mode` (`chat` por defecto, o `desarrollada`: estructura Planteamiento, Desarrollo, Fundamentación, Conclusión y Límites del corpus; no se guarda) y devuelven un `TurnOut`: `conversation` (`ConversationOut`: `id`, `title`, `created_at`, `updated_at`) y `messages` (el mensaje del usuario y el del asistente). Cada `MessageOut` lleva `role` (`user`/`assistant`), `content`, `status` (`answered`/`no_evidence`, solo en el asistente), `answer_id` y `citations` (mismas `CitationOut` y renumeración `[n]` que `AnswerOut`; se abren con el visor de `GET /documents/{id}/pages/{n}`).
+
+- Siempre responde en modo `chat`: recuperación amplia (la de `desarrollada`), prosa conversacional de 150 a 600 palabras restringida al corpus y con citas. No hay campo `mode`.
+- Memoria: con los últimos 6 mensajes del hilo (300 caracteres cada uno, sin marcas `[n]`), la pregunta de seguimiento se reformula como pregunta autónoma antes de recuperar fragmentos y esos turnos acompañan al prompt de respuesta como contexto, no como fuente. Con `ATENEO_LLM_PROVIDER=fake` la reformulación es determinista: pregunta anterior del usuario + pregunta nueva. Si falla la llamada de reformulación se usa esa misma concatenación.
+- Un turno es atómico: ante un fallo del proveedor (503) no se guarda ni el mensaje del usuario ni la conversación; el cliente puede reintentar.
+- Cada mensaje del asistente se guarda como un `Answer` (`kind = query`) con sus `Citation`, así que `POST /feedback` con su `answer_id` y el panel de administración funcionan igual.
+- Solo el propietario ve, amplía o borra una conversación: de otro usuario responde 404. Admin recibe 403 como en el resto de rutas de estudio.
+- La conversación aparece una vez en `GET /history` y se borra con `DELETE /history/{entry_id}` o `DELETE /history`.
+- Si se borra una conversación mientras se espera la respuesta de un turno, ese turno responde 404 al terminar y no guarda nada.
+- Límite por usuario en `POST /queries`, `/generations`, `/conversations`, `/conversations/{id}/messages` y `/exams`: `ATENEO_AI_MAX_REQUESTS` (20) peticiones por `ATENEO_AI_WINDOW_SECONDS` (600, ventana deslizante, en memoria del proceso); al superarlo, 429 con `Retry-After`.
+
+`POST /queries` no cambia y sigue sin memoria.
 
 El proveedor se elige por entorno: `ATENEO_LLM_PROVIDER` (`fake` por defecto, `openai`) y `ATENEO_EMBEDDER` (`fake` por defecto, `openai`; debe ser el mismo que indexó el corpus). Las variables de cada proveedor están en el [prototipo RAG](rag-prototype.md). Pruebas y CI usan siempre `fake`. Un fallo del proveedor devuelve 503 sin guardar nada.
 
@@ -201,9 +224,11 @@ La estructura se comprueba con `app.rag.generate.well_formed` en el RAG y tras l
 
 ### Exámenes y feedback (CU-06 y CU-10)
 
-El examen incluye ejercicios de completar texto de páginas del corpus vigente, filtradas por año, asignatura y tema opcional. Las dificultades baja, media y alta ocultan uno, dos o tres términos relevantes. Cada solución conserva una cita exacta con la versión de la página y sus offsets. La creación guarda el examen, las soluciones, las citas y la entrada de actividad en la misma transacción.
+El examen es mixto y lo genera la IA con el material vigente de la clasificación pedida (año, asignatura y tema opcional). `question_count` es el número de preguntas; `types` limita los tipos (por defecto los cuatro). El reparto, con al menos un caso práctico si hay dos o más preguntas, se ordena como un examen real: test (`multiple_choice`, cuatro opciones y una correcta), verdadero o falso con justificación (`true_false`), desarrollo (`development`) y caso práctico (`case`: supuesto de hecho con varias preguntas `a)`, `b)`…). Las dificultades baja, media y alta se indican al modelo. Cada pregunta lleva `kind`, `statement`, `options` (solo test, si no `null`), `points` (la suma de todo el examen es 10) y el examen `duration_minutes` y `total_points`. Los exámenes anteriores, de completar fragmento, se leen con `kind` `completion`, 1 punto por pregunta y 30 minutos.
 
-Las soluciones se consultan en `/exams/{exam_id}/answers` con la cuenta que creó el examen. La práctica es de autocorrección. El feedback admite valoraciones, reportes de error y sugerencias, con referencias opcionales a recursos propios.
+Una sola llamada al proveedor devuelve el JSON de todas las preguntas (varias llamadas por examen superarían los 120 s del proxy). La salida se valida: JSON inválido, preguntas mal formadas (p. ej. un test sin cuatro opciones distintas) o repetidas se descartan. La solución de cada pregunta se verifica como una respuesta de CU-01: cada línea lleva una marca `[Fn]` que se resuelve con `cite_reply` en una cita exacta de la página (versión y offsets) y las marcas se renumeran `[1]..[k]` por pregunta. Una pregunta cuya solución no se pueda citar se descarta; si faltan preguntas hay un único reintento, solo por las que faltan y solo si la primera llamada tardó menos de 45 s. Si aun así no se alcanza `question_count`, la respuesta es 422 («El corpus vigente permite N preguntas…») y no se guarda nada. El `criteria` (criterio de corrección) lo redacta el modelo sin citas y puntúa las ideas del modelo de respuesta, que sí está citado. Con `ATENEO_LLM_PROVIDER=fake` el generador es determinista y produce una pregunta válida de cada tipo con oraciones del corpus. La creación guarda el examen, las preguntas, las citas y la entrada de actividad en la misma transacción.
+
+Las soluciones se consultan en `/exams/{exam_id}/answers` (`answer`, `criteria` y citas) con la cuenta que creó el examen. `GET /exams/{exam_id}/pdf` descarga el examen en A4 para el estudiante: cabecera con universidad, facultad y carrera, asignatura, año, tema, fecha, duración, nombre y grupo a rellenar, instrucciones generales, preguntas numeradas con su puntuación y total, casillas en las de test y verdadero o falso, líneas para responder a las de desarrollo y al caso, y pie con «Página n de N». `GET /exams/{exam_id}/answers/pdf` descarga la clave (`CLAVE DE CORRECCIÓN`) con solución, criterio, puntuación y fuentes (documento y página). Ambos usan el mismo control de acceso que el examen (404 si es de otro usuario) y devuelven `Content-Disposition: attachment`. La práctica es de autocorrección. El feedback admite valoraciones, reportes de error y sugerencias, con referencias opcionales a recursos propios.
 
 ## Modelo de datos
 
@@ -217,7 +242,8 @@ PostgreSQL 17 con pgvector. Las tablas se crean exclusivamente mediante Alembic.
 | `chunks` | Fragmento de la ingestión: `id` (`chunk_id` determinista), documento, versión, página, `start_offset`/`end_offset`, texto y `embedding` (pgvector, nulo hasta AT-14). |
 | `answers` | Resultado de consulta o generación: autor, `kind` (`query`/`summary`/`outline`/`table`/`diagram`), `status`, pregunta, filtros y contenido. |
 | `citations` | Copia verificable de cada cita, ligada a una respuesta o a una pregunta de examen (exactamente una). |
-| `exams`, `exam_questions` | Configuración del examen y preguntas ordenadas con su respuesta. |
+| `conversations`, `messages` | Chat con memoria (migración 0005): conversación con propietario, título y fechas; mensaje `user`/`assistant` con contenido y, el del asistente, enlace a su `answers` (estado y citas). La entrada de historial `conversation` se enlaza con `history_entries.conversation_id`. |
+| `exams`, `exam_questions` | Configuración y duración del examen; preguntas ordenadas con `kind`, `options`, `points`, respuesta y `criteria` (migración 0006). |
 | `history_entries` | CU-04: fecha, autor, `action` y resumen, con enlace opcional a respuesta, examen o documento. |
 | `feedback` | Valoración (1–5), error o sugerencia, con autor y vínculo opcional a respuesta o examen. |
 

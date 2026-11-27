@@ -4,7 +4,7 @@ from datetime import date, datetime
 from typing import Annotated, Any, Literal, Self
 
 from fastapi import UploadFile
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from app.models import (
     AnswerKind,
@@ -13,13 +13,20 @@ from app.models import (
     DocumentStatus,
     FeedbackKind,
     HistoryAction,
+    MessageRole,
     PageStatus,
+    QuestionKind,
     Role,
 )
 
+# Las columnas id son INTEGER de 32 bits: sin cota, Postgres daría 500 en vez de 404/422.
+Id = Annotated[int, Field(ge=1, le=2**31 - 1)]
+Limit = Annotated[int, Field(ge=1, le=100)]
+Offset = Annotated[int, Field(ge=0, le=1_000_000)]
 Year = Annotated[int, Field(ge=1, le=4)]
 Text = Annotated[str, Field(min_length=1, max_length=200)]
 Question = Annotated[str, Field(min_length=1, max_length=1000)]
+RawPassword = Annotated[str, StringConstraints(strip_whitespace=False)]
 
 
 class Contract(BaseModel):
@@ -43,7 +50,7 @@ class ErrorResponse(Contract):
 
 class LoginRequest(Contract):
     email: Annotated[str, Field(min_length=3, max_length=320)]
-    password: Annotated[str, Field(min_length=1, max_length=200)]
+    password: Annotated[RawPassword, Field(min_length=1, max_length=200)]
 
 
 class UserOut(Contract):
@@ -187,24 +194,73 @@ class HistoryEntryOut(Contract):
     answer_id: int | None
     exam_id: int | None
     document_id: str | None
+    conversation_id: int | None
     created_at: datetime
 
 
+# CU-01 (chat con memoria)
+
+
+class TurnRequest(Classification):
+    """Pregunta de un turno; el hilo anterior lo pone el servidor."""
+
+    question: Question
+    mode: Literal["chat", "desarrollada"] = Field(
+        default="chat",
+        description="«chat» (por defecto): respuesta conversacional. «desarrollada»: estructura "
+        "Planteamiento, Desarrollo, Fundamentación, Conclusión y Límites del corpus.",
+    )
+
+
+class MessageOut(Contract):
+    id: int
+    role: MessageRole
+    content: str
+    status: AnswerStatus | None = Field(description="Solo en mensajes del asistente.")
+    answer_id: int | None
+    citations: list[CitationOut]
+    created_at: datetime
+
+
+class ConversationOut(Contract):
+    id: int
+    title: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class ConversationDetail(ConversationOut):
+    messages: list[MessageOut]
+
+
+class TurnOut(Contract):
+    conversation: ConversationOut
+    messages: list[MessageOut] = Field(description="El mensaje del usuario y la respuesta.")
+
+
 # CU-06
+
+
+ExamKind = Literal["development", "case", "multiple_choice", "true_false"]
 
 
 class ExamRequest(Contract):
     year: Year
     subject: Text
     topic: Text | None = None
-    question_count: int = Field(ge=1, le=50)
+    question_count: int = Field(ge=1, le=20)
     difficulty: Difficulty
+    # Por defecto, mixto: test, verdadero/falso, desarrollo y caso práctico.
+    types: list[ExamKind] | None = Field(default=None, min_length=1, max_length=4)
 
 
 class ExamQuestionOut(Contract):
     id: int
     position: int
+    kind: QuestionKind
     statement: str
+    options: list[str] | None
+    points: float
 
 
 class ExamOut(Contract):
@@ -214,6 +270,10 @@ class ExamOut(Contract):
     topic: str | None
     difficulty: Difficulty
     question_count: int
+    duration_minutes: int
+    total_points: float
+    status: Literal["pending", "ready", "failed"]
+    error: str | None
     questions: list[ExamQuestionOut]
     created_at: datetime
 
@@ -222,6 +282,7 @@ class ExamAnswerOut(Contract):
     question_id: int
     position: int
     answer: str
+    criteria: str | None
     citations: list[CitationOut] = Field(min_length=1)
 
 
@@ -232,8 +293,8 @@ class FeedbackRequest(Contract):
     kind: FeedbackKind
     rating: int | None = Field(default=None, ge=1, le=5)
     comment: Annotated[str, Field(min_length=1, max_length=2000)] | None = None
-    answer_id: int | None = None
-    exam_id: int | None = None
+    answer_id: Id | None = None
+    exam_id: Id | None = None
 
     @model_validator(mode="after")
     def kind_fields(self) -> Self:
@@ -252,7 +313,7 @@ class FeedbackOut(FeedbackRequest):
 # Administración
 
 
-Password = Annotated[str, Field(min_length=8, max_length=200)]  # MIN_PASSWORD de app.auth
+Password = Annotated[RawPassword, StringConstraints(min_length=8, max_length=200)]  # MIN_PASSWORD
 Name = Annotated[str, Field(min_length=1, max_length=200)]
 
 

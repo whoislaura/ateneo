@@ -13,6 +13,7 @@ from pypdf import PdfReader, PdfWriter
 from app.rag.index import index_document, search
 from app.rag.ingestion import (
     ChunkSettings,
+    Document,
     DocumentMetadata,
     IngestionError,
     Page,
@@ -285,3 +286,18 @@ def test_cli_roundtrip_and_invalid_replacement(tmp_path):
     absent = tmp_path / "absent.sqlite"
     assert run("search", "--index", absent, "--query", "texto").returncode == 1
     assert not absent.exists()
+
+
+def test_ligatures_are_expanded_and_retrievable(tmp_path):
+    assert normalize_text("ﬁanza ﬂujo ﬀ ﬃ") == "fianza flujo ff ffi"
+    assert normalize_text("art. 14² n.º 3 ½") == "art. 14² n.º 3 ½"
+    meta = DocumentMetadata(
+        document_id="lig", title="Fianza", year=4, subject="Civil", topic="Garantías"
+    )
+    text = normalize_text("La ﬁanza es una garantía personal.")
+    page = Page(1, None, text, "text")
+    settings = ChunkSettings()
+    chunks = chunk_page(page, "lig", "v" * 64, settings)
+    index = tmp_path / "index.sqlite"
+    index_document(index, Document(meta, "lig.pdf", "a" * 64, settings, [page], chunks))
+    assert len(search(index, "fianza")) == 1

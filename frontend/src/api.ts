@@ -70,9 +70,46 @@ export interface Page {
 
 export interface HistoryEntry {
   id: number
-  action: 'query' | 'generation'
+  action: 'query' | 'generation' | 'conversation'
   summary: string
+  conversation_id: number | null
   created_at: string
+}
+
+// Chat con memoria (CU-01): conversaciones y mensajes.
+export interface Conversation {
+  id: number
+  title: string
+  created_at: string
+  updated_at: string
+}
+
+export interface ChatMessage {
+  id: number
+  role: 'user' | 'assistant'
+  content: string
+  /** Solo en mensajes del asistente. */
+  status: 'answered' | 'no_evidence' | null
+  answer_id: number | null
+  citations: Citation[]
+  created_at: string
+}
+
+export interface ConversationDetail extends Conversation {
+  messages: ChatMessage[]
+}
+
+export interface Turn {
+  conversation: Conversation
+  messages: ChatMessage[]
+}
+
+export interface TurnRequest {
+  question: string
+  year?: number
+  subject?: string
+  topic?: string
+  mode?: 'chat' | 'desarrollada'
 }
 
 // --- CU-03: corpus (AT-10, AT-23) ---
@@ -142,6 +179,12 @@ export function setToken(value: string | null) {
 }
 
 let onUnauthorized: () => void = () => {}
+let onForbidden: () => void = () => {}
+
+/** Se llama ante un 403 (el rol pudo cambiar en el servidor); el manejador revalida la sesión. */
+export function setForbiddenHandler(handler: () => void) {
+  onForbidden = handler
+}
 
 /** Se llama cuando una petición con token recibe 401 (sesión caducada o revocada). */
 export function setUnauthorizedHandler(handler: () => void) {
@@ -172,7 +215,31 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     setToken(null)
     onUnauthorized()
   }
+  // /auth/me queda fuera: el manejador lo llama y un 403 ahí provocaría un bucle.
+  if (response.status === 403 && sentToken && path !== '/auth/me') onForbidden()
   throw new ApiError(response.status, code, message)
+}
+
+/** Descarga un PDF protegido (necesita el token, por eso no es un enlace) y lo guarda con `filename`. */
+export async function downloadPdf(path: string, filename: string): Promise<void> {
+  const headers = new Headers()
+  const sentToken = token
+  if (sentToken) headers.set('Authorization', `Bearer ${sentToken}`)
+  const response = await fetch(`/api/v1${path}`, { headers })
+  if (!response.ok) {
+    if (response.status === 401 && sentToken && sentToken === token) {
+      setToken(null)
+      onUnauthorized()
+    }
+    if (response.status === 403 && sentToken) onForbidden()
+    throw new ApiError(response.status, 'http_error', 'No se pudo descargar el PDF.')
+  }
+  const url = URL.createObjectURL(await response.blob())
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(url)
 }
 
 /** Mensaje para el usuario según el error de `api()` (compartido por las pantallas). */
@@ -182,6 +249,8 @@ export function errorMessage(err: unknown): string {
   if (err.status === 403) return 'Tu rol no tiene permiso para esta acción.'
   if (err.status === 404) return 'El recurso solicitado no existe o ya no está disponible.'
   if (err.status === 422) return 'Revisa los datos: hay campos no válidos.'
+  // Sin cuerpo JSON del contrato (code por defecto): lo respondió el proxy mientras la API arranca o tarda.
+  if ([502, 503, 504].includes(err.status) && err.code === 'http_error') return 'El servidor tardó demasiado o se está iniciando; inténtalo de nuevo en un minuto.'
   if (err.status === 501) return 'Esta función aún no está disponible en el servidor.'
   return err.message
 }
@@ -207,6 +276,27 @@ export interface GenerationRequest {
 
 export type Difficulty = 'easy' | 'medium' | 'hard'
 
+export type QuestionKind = 'multiple_choice' | 'true_false' | 'development' | 'case' | 'completion'
+/** Tipos que el profesor puede elegir al generar; «completion» solo existe en exámenes antiguos. */
+export type ExamKind = Exclude<QuestionKind, 'completion'>
+
+export const questionKindLabels: Record<QuestionKind, string> = {
+  multiple_choice: 'Test',
+  true_false: 'Verdadero o falso',
+  development: 'Desarrollo',
+  case: 'Caso práctico',
+  completion: 'Completar',
+}
+
+export interface ExamQuestion {
+  id: number
+  position: number
+  kind: QuestionKind
+  statement: string
+  options: string[] | null
+  points: number
+}
+
 export interface Exam {
   id: number
   year: number
@@ -214,7 +304,11 @@ export interface Exam {
   topic: string | null
   difficulty: Difficulty
   question_count: number
-  questions: { id: number; position: number; statement: string }[]
+  duration_minutes: number
+  total_points: number
+  status: 'pending' | 'ready' | 'failed'
+  error: string | null
+  questions: ExamQuestion[]
   created_at: string
 }
 
@@ -222,6 +316,7 @@ export interface ExamAnswer {
   question_id: number
   position: number
   answer: string
+  criteria: string | null
   citations: Citation[]
 }
 

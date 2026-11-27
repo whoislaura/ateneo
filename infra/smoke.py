@@ -120,7 +120,15 @@ def check_authenticated(base_url, email, password):
             "question_count": 1,
             "difficulty": "easy",
         }
-        created = expect(call(base_url, "POST", "/exams", token=token, body=body), 201, "el examen")
+        created = expect(call(base_url, "POST", "/exams", token=token, body=body), 202, "el examen")
+        for _ in range(60):  # la generación es asíncrona
+            state = expect(
+                call(base_url, "GET", f"/exams/{created['id']}", token=token), 200, "el examen"
+            )
+            if state["status"] != "pending":
+                break
+            time.sleep(2)
+        assert state["status"] == "ready", f"examen no listo: {state['status']} {state['error']}"
         path = f"/exams/{created['id']}/answers"
         answers = expect(call(base_url, "GET", path, token=token), 200, "las soluciones")
         assert answers and all(a["citations"] for a in answers), "soluciones sin citas"
@@ -197,10 +205,14 @@ def check_pgvector():
     if env_file := os.environ.get("COMPOSE_ENV_FILE"):
         command += ["--env-file", env_file]
     command += [
-        "exec", "-T", "db", "sh", "-c",
+        "exec",
+        "-T",
+        "db",
+        "sh",
+        "-c",
         (
             'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc '
-            '"SELECT extname FROM pg_extension WHERE extname = \'vector\';"'
+            "\"SELECT extname FROM pg_extension WHERE extname = 'vector';\""
         ),
     ]
     result = subprocess.run(command, check=True, text=True, capture_output=True)

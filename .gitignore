@@ -26,3 +26,5 @@ indexes/
 *.db
 *.db-*
 backups/
+CONTEXTO-AGENTE.md
+*.tsbuildinfo

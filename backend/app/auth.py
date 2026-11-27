@@ -16,14 +16,16 @@ import hmac
 import math
 import os
 import secrets
+import threading
 import time
+from collections import deque
 from datetime import UTC, datetime, timedelta
 from functools import cache
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -38,6 +40,9 @@ MIN_PASSWORD = 8
 LOGIN_MAX_ATTEMPTS = int(os.environ.get("ATENEO_LOGIN_MAX_ATTEMPTS", 5))
 LOGIN_IP_MAX_ATTEMPTS = int(os.environ.get("ATENEO_LOGIN_IP_MAX_ATTEMPTS", 50))
 LOGIN_WINDOW_SECONDS = int(os.environ.get("ATENEO_LOGIN_WINDOW_SECONDS", 900))
+# Peticiones por usuario a los endpoints que llaman al LLM (cuota del proveedor), ventana móvil.
+AI_MAX_REQUESTS = int(os.environ.get("ATENEO_AI_MAX_REQUESTS", 20))
+AI_WINDOW_SECONDS = int(os.environ.get("ATENEO_AI_WINDOW_SECONDS", 600))
 # Proxies propios delante de la API que añaden su entrada a X-Forwarded-For. 0: no se confía en la
 # cabecera (un cliente puede inventarla) y se usa la IP de la conexión.
 TRUSTED_PROXY_HOPS = int(os.environ.get("ATENEO_TRUSTED_PROXY_HOPS", 0))
@@ -102,18 +107,20 @@ def client_ip(request: Request) -> str:
 
 
 class LoginLimiter:
-    """Cuenta logins fallidos por correo normalizado y por IP en ventanas fijas."""
+    """Cuenta logins fallidos por (correo normalizado, IP) y por IP en ventanas fijas."""
 
     # shortcut: memoria del proceso (se pierde al reiniciar y no se comparte entre procesos ni
     # réplicas); pasar a la base o a Redis si la API corre con varios workers o instancias.
     def __init__(self, clock=time.monotonic):
         self.clock = clock
         self.failures: dict[str, tuple[float, int]] = {}
+        self._lock = threading.Lock()
 
     @staticmethod
     def _keys(email: str, ip: str) -> dict[str, int]:
         email = email.strip().lower()
-        return {f"email:{email}": LOGIN_MAX_ATTEMPTS, f"ip:{ip}": LOGIN_IP_MAX_ATTEMPTS}
+        # Con la IP en la clave, un tercero no bloquea la cuenta ajena desde otra IP.
+        return {f"email:{email}|{ip}": LOGIN_MAX_ATTEMPTS, f"ip:{ip}": LOGIN_IP_MAX_ATTEMPTS}
 
     def _current(self, key: str, now: float) -> tuple[float, int]:
         start, count = self.failures.get(key, (now, 0))
@@ -132,21 +139,50 @@ class LoginLimiter:
 
     def fail(self, email: str, ip: str) -> None:
         now = self.clock()
-        if len(self.failures) > 10_000:  # acota la memoria ante muchos correos distintos
-            self.failures = {
-                key: value
-                for key, value in self.failures.items()
-                if now - value[0] < LOGIN_WINDOW_SECONDS
-            }
-        for key in self._keys(email, ip):
-            start, count = self._current(key, now)
-            self.failures[key] = (start, count + 1)
+        with self._lock:
+            if len(self.failures) > 10_000:  # acota la memoria ante muchos correos distintos
+                self.failures = {
+                    key: value
+                    for key, value in self.failures.items()
+                    if now - value[0] < LOGIN_WINDOW_SECONDS
+                }
+            for key in self._keys(email, ip):
+                start, count = self._current(key, now)
+                self.failures[key] = (start, count + 1)
 
-    def succeed(self, email: str) -> None:
-        self.failures.pop(f"email:{email.strip().lower()}", None)
+    def succeed(self, email: str, ip: str) -> None:
+        with self._lock:
+            self.failures.pop(f"email:{email.strip().lower()}|{ip}", None)
 
 
 login_limiter = LoginLimiter()
+
+
+class AiLimiter:
+    """Peticiones al LLM por usuario en una ventana deslizante."""
+
+    # shortcut: memoria del proceso, como LoginLimiter; pasar a Redis con varios workers.
+    def __init__(self, clock=time.monotonic):
+        self.clock = clock
+        self.hits: dict[int, deque[float]] = {}
+        self._lock = threading.Lock()
+
+    def acquire(self, user_id: int) -> int:
+        """Registra la petición y devuelve 0, o los segundos de espera si el usuario se pasó."""
+        now = self.clock()
+        with self._lock:
+            if len(self.hits) > 10_000:  # acota la memoria
+                self.hits = {k: v for k, v in self.hits.items() if now - v[-1] < AI_WINDOW_SECONDS}
+            hits = self.hits.setdefault(user_id, deque())
+            while hits and now - hits[0] >= AI_WINDOW_SECONDS:
+                hits.popleft()
+            if len(hits) >= AI_MAX_REQUESTS:
+                return math.ceil(AI_WINDOW_SECONDS - (now - hits[0]))
+            hits.append(now)
+            return 0
+
+
+ai_limiter = AiLimiter()
 
 
 def create_session(db: Session, user: User) -> str:
@@ -196,6 +232,17 @@ def current_user(
     return user
 
 
+def ai_quota(user: Annotated[User, Depends(current_user)]) -> None:
+    """Dependencia: 429 con Retry-After si el usuario agotó sus peticiones al LLM."""
+    wait = ai_limiter.acquire(user.id)
+    if wait:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            f"Demasiadas peticiones al asistente. Reintente en {math.ceil(wait / 60)} min.",
+            headers={"Retry-After": str(wait)},
+        )
+
+
 def require_roles(*roles: Role):
     """Dependencia: exige sesión válida (401) y uno de `roles` (403)."""
 
@@ -234,6 +281,20 @@ def set_password(db: Session, user: User, password: str) -> None:
     user.password_hash = hash_password(password)
     db.execute(delete(AuthSession).where(AuthSession.user_id == user.id))
     db.commit()
+
+
+def guard_last_admin(db: Session, target_id: int) -> None:
+    """Revalida la guarda con el bloqueo del dialecto: FOR UPDATE o escritura SQLite."""
+    admins = select(User.id).where(User.role == Role.ADMIN, User.is_active).order_by(User.id)
+    if db.get_bind().dialect.name == "sqlite":
+        db.execute(update(User).where(User.role == Role.ADMIN, User.is_active).values(id=User.id))
+    else:
+        admins = admins.with_for_update()
+    remaining = db.scalars(admins).all()
+    if not [admin_id for admin_id in remaining if admin_id != target_id]:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "Debe quedar al menos un administrador activo."
+        )
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -278,10 +339,14 @@ def main(argv: list[str] | None = None) -> None:
                 set_password(db, user, _ask_password(parser))
                 print(f"Contraseña actualizada: {user.email}.")
             elif args.command == "set-role":
+                if user.role == Role.ADMIN and user.is_active and Role(args.role) != Role.ADMIN:
+                    guard_last_admin(db, user.id)
                 user.role = Role(args.role)
                 db.commit()
                 print(f"Rol actualizado: {user.email} ({user.role.value}).")
             elif args.command == "deactivate":
+                if user.role == Role.ADMIN and user.is_active:
+                    guard_last_admin(db, user.id)
                 user.is_active = False
                 db.execute(delete(AuthSession).where(AuthSession.user_id == user.id))
                 db.commit()
@@ -292,6 +357,8 @@ def main(argv: list[str] | None = None) -> None:
                 print(f"Usuario reactivado: {user.email}.")
     except (ValueError, LookupError) as error:
         parser.exit(1, f"{error}\n")
+    except HTTPException as error:  # guarda del último administrador
+        parser.exit(1, f"{error.detail}\n")
     except IntegrityError:
         parser.exit(1, "Ya existe un usuario con ese correo.\n")
 

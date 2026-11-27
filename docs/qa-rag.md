@@ -31,12 +31,17 @@ uv run pytest -q
 - Contrato de cada pregunta del set, en CU-01 (modos breve y desarrollada) y en los cuatro formatos de CU-02: una respuesta `answered` tiene citas, cada marca `[n]` corresponde a una cita y cada `quote` es exactamente `página.text[start:end]`; si no, la respuesta es `No encontrado en el corpus.` sin citas. Las preguntas `f` siempre dan `no_evidence`.
 - Alucinaciones: una afirmación con marca válida pero con cifras que no están en el fragmento (año, cantidad) se rechaza; una cifra que sí está en el fragmento se acepta.
 - Instrucción incrustada: el texto del documento llega al modelo solo dentro de los fragmentos, el prompt lo declara dato y un modelo que la obedece (responde sin marcas) acaba en `no_evidence`.
-- Modo desarrollada (`test_rag_answer.py`): estructura y citas exactas con el proveedor `fake`, límite y tope por documento de la recuperación, ampliación con fragmentos vecinos sin perder la exactitud de los offsets (y cita con el fragmento vecino que contiene la oración), presupuesto de caracteres, eliminación solo de las oraciones con cita inválida o cifras sin marca (breve rechaza la misma salida entera) y `no_evidence` si no queda nada verificable. `test_queries.py` comprueba que la API acepta y omite `mode` y responde 422 a un modo inválido.
+- Modo desarrollada (`test_rag_answer.py`): estructura y citas exactas con el proveedor `fake`, límite y tope por documento de la recuperación, ampliación con fragmentos vecinos sin perder la exactitud de los offsets (y cita con el fragmento vecino que contiene la oración), presupuesto de caracteres, eliminación solo de las oraciones con cita inválida o cifras sin marca y `no_evidence` si no queda nada verificable. `test_queries.py` comprueba que la API acepta y omite `mode` y responde 422 a un modo inválido.
+- Chat (`test_chat.py`): propiedad y acceso entre usuarios (404 ajeno), seguimiento que solo se resuelve con el contexto del hilo (proveedor `fake`), paginación, historial y borrado, fallo del proveedor sin guardar nada, reformulación con respaldo, recorte del historial y migración 0005 (bajar a 0004 y volver a subir).
 - Prompts: respuesta breve, desarrollada y generación exigen la negativa exacta fuera del corpus, tratan fragmentos y pregunta como datos y no aceptan premisas no respaldadas.
 - Informe de evaluación: `accept_refusal`, `must_not_contain` y errores del proveedor por pregunta.
 - Exámenes (CU-06): para cada dificultad, cada pregunta cita una oración que coincide con la página, el enunciado con el hueco relleno es la cita, se ocultan 1, 2 o 3 términos (fácil, media, difícil), las posiciones son 1..n sin enunciados repetidos y la cantidad es exacta o se rechaza con 422.
 
 `test_rag_answer.py` y, con `ATENEO_TEST_DATABASE_URL`, `test_rag_vector.py` ejecutan el mismo set por SQLite y por pgvector.
+
+## Recuperación híbrida
+
+Con PostgreSQL, `ATENEO_RETRIEVAL` elige cómo se recuperan los fragmentos: `hybrid` (defecto), `text` o `vector`. El texto completo usa `to_tsvector('spanish', ateneo_unaccent(text))` con el índice GIN de la migración 0004 (extensión `unaccent`; la función envoltorio es IMMUTABLE porque `unaccent` no lo es) y `ts_rank`; basta un término de la pregunta, como en FTS5. `hybrid` fusiona ambas listas por rangos recíprocos (RRF, k=60) y `score` pasa a ser la puntuación fusionada; el vector conserva su filtro `ATENEO_MAX_DISTANCE`. Motivo: con embeddings `fake`, «¿Cuántas especies forestales arbóreas protege la Ley Forestal cubana?» dejaba el fragmento «60 especies…» hacia el puesto 56 por coseno, fuera de los 5 (breve) o 16 (desarrollada) que llegan al modelo; `test_postgres_text_search_finds_literal_fragment_buried_by_vector_noise` lo reproduce. El índice SQLite y `python -m app.rag search` sin `--index` (solo vector) no cambian.
 
 ## Evaluación con cualquier proveedor
 
@@ -74,7 +79,7 @@ Sin `--index` usa PostgreSQL (`DATABASE_URL`) y pgvector; `--embedder openai` us
 
 ## Límites conocidos
 
-- La verificación es por marca: una oración sin marca junto a otra citada se publica (`test_unmarked_sentence_is_a_known_gap`). Exigir marca por oración rechazaría muchas respuestas reales con introducciones; decidir tras medir con un proveedor real.
+- La verificación es por marca: una oración sin marca ni cifras junto a otra citada se publica (`test_unmarked_sentence_is_a_known_gap`); con cifras sin marca, los modos breve, desarrollada y chat eliminan solo esa oración. Una marca sin ningún término en común con el fragmento, o mal formada (`[F1, F2]`, `[F1; F2]`), es inválida. Exigir marca por oración rechazaría muchas respuestas reales con introducciones; decidir tras medir con un proveedor real.
 - La cita prueba que el texto existe en la página, no que respalde la afirmación (salvo las cifras). Las cifras se comparan como grupos de dígitos: «1.850» y «1850» no coinciden.
 - Un examen puede usar una oración con una instrucción incrustada como texto a completar; es texto literal del documento, no se ejecuta.
 

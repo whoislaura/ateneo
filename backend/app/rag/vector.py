@@ -2,13 +2,16 @@
 
 import hashlib
 import json
+import logging
 import math
 import os
 import unicodedata
 import urllib.request
 from collections.abc import Callable
 
-from sqlalchemy import delete, func, insert, select
+from sqlalchemy import case, delete, func, insert, literal_column, select
+from sqlalchemy import text as sql_text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.models import Chunk, DocumentStatus, PageStatus
@@ -16,7 +19,11 @@ from app.models import Document as DocumentRow
 from app.models import Page as PageRow
 from app.rag.index import MAX_LIMIT, content_terms, document_report
 from app.rag.ingestion import Document, IngestionError
-from app.rag.rotation import rotating
+from app.rag.rotation import ProviderError, rotating
+
+log = logging.getLogger("ateneo.rag")
+MAX_TEXT_TERMS = 12
+TEXT_SEARCH_TIMEOUT_MS = 5000
 
 Embedder = Callable[[list[str]], list[list[float]]]
 
@@ -71,10 +78,15 @@ def openai_compatible_embedder(texts: list[str], key: str | None = None) -> list
             headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
         )
         with urllib.request.urlopen(request, timeout=60) as response:
-            data = sorted(json.load(response)["data"], key=lambda item: item["index"])
-        vectors += [item["embedding"] for item in data]
+            try:
+                data = sorted(json.load(response)["data"], key=lambda item: item["index"])
+                vectors += [item["embedding"] for item in data]
+            except (KeyError, TypeError):
+                raise ProviderError("Respuesta inválida del proveedor") from None
     if len(vectors) != len(texts) or any(len(v) != dimension for v in vectors):
-        raise ValueError(f"El modelo no devolvió {len(texts)} vectores de dimensión {dimension}.")
+        raise ProviderError(
+            f"El modelo no devolvió {len(texts)} vectores de dimensión {dimension}."
+        )
     return vectors
 
 
@@ -144,27 +156,17 @@ def filter_key(value: str) -> str:
     return unicodedata.normalize("NFC", value).strip().lower()
 
 
-def search(
-    session: Session,
-    query: str,
-    embedder: Embedder,
-    *,
-    year: int | None = None,
-    subject: str | None = None,
-    topic: str | None = None,
-    limit: int = 5,
-) -> list[dict]:
-    """Fragmentos más cercanos por distancia coseno, con el mismo formato que el índice SQLite."""
+def check_search(year: int | None, limit: int, query: str) -> None:
     if year is not None and (type(year) is not int or year not in range(1, 5)):
         raise IngestionError("El año debe estar entre 1 y 4.")
     if type(limit) is not int or not 1 <= limit <= MAX_LIMIT:
         raise IngestionError(f"El límite debe estar entre 1 y {MAX_LIMIT}.")
     if len(query) > 1000:
         raise IngestionError("La consulta admite hasta 1000 caracteres.")
-    [vector] = embedder([query])
-    if not math.fsum(x * x for x in vector):
-        return []  # el coseno con un vector nulo no está definido
-    distance = Chunk.embedding.cosine_distance(vector).label("score")
+
+
+def select_chunks(score, *, year: int | None, subject: str | None, topic: str | None, limit: int):
+    """Columnas, joins y filtros comunes; mismo formato que el índice SQLite."""
     statement = (
         select(
             Chunk.id.label("chunk_id"),
@@ -180,19 +182,14 @@ def search(
             Chunk.start_offset.label("start"),
             Chunk.end_offset.label("end"),
             Chunk.text,
-            distance,
+            score.label("score"),
         )
         .join(DocumentRow, DocumentRow.id == Chunk.document_id)
         .join(
             PageRow,
             (PageRow.document_id == Chunk.document_id) & (PageRow.number == Chunk.page_number),
         )
-        .where(
-            DocumentRow.status != DocumentStatus.RETIRED,
-            # La columna no tiene dimensión fija; se ignoran vectores de otro modelo.
-            func.vector_dims(Chunk.embedding) == len(vector),
-        )
-        .order_by(distance, Chunk.id)
+        .where(DocumentRow.status != DocumentStatus.RETIRED)
         .limit(limit)
     )
     if year is not None:
@@ -200,4 +197,94 @@ def search(
     for column, value in ((DocumentRow.subject, subject), (DocumentRow.topic, topic)):
         if value is not None:
             statement = statement.where(func.lower(func.trim(column)) == filter_key(value))
+    return statement
+
+
+def search(
+    session: Session,
+    query: str,
+    embedder: Embedder,
+    *,
+    year: int | None = None,
+    subject: str | None = None,
+    topic: str | None = None,
+    limit: int = 5,
+) -> list[dict]:
+    """Fragmentos más cercanos por distancia coseno, con el mismo formato que el índice SQLite."""
+    check_search(year, limit, query)
+    [vector] = embedder([query])
+    if not math.fsum(x * x for x in vector):
+        return []  # el coseno con un vector nulo no está definido
+    distance = Chunk.embedding.cosine_distance(vector)
+    statement = (
+        select_chunks(distance, year=year, subject=subject, topic=topic, limit=limit)
+        # La columna no tiene dimensión fija; se ignoran vectores de otro modelo.
+        .where(func.vector_dims(Chunk.embedding) == len(vector))
+        .order_by(distance, Chunk.id)
+    )
+    return [dict(row) for row in session.execute(statement).mappings()]
+
+
+def text_search(
+    session: Session,
+    query: str,
+    *,
+    year: int | None = None,
+    subject: str | None = None,
+    topic: str | None = None,
+    limit: int = 5,
+) -> list[dict]:
+    """Texto completo en español sin tildes (índice de 0004); basta un término.
+
+    `score` pondera cada término por su rareza en el corpus (IDF): «ley» o «especies», que se
+    repiten en cada página de un libro, pesan menos que «sanciones» o «200».
+    """
+    check_search(year, limit, query)
+    terms = list(dict.fromkeys(content_terms(query)))
+    if len(terms) > MAX_TEXT_TERMS:  # cada término cuesta un COUNT sobre todo el corpus
+        longest = sorted(terms, key=len, reverse=True)[:MAX_TEXT_TERMS]
+        terms = [term for term in terms if term in longest]
+    if not terms:
+        return []
+    if session.get_bind().dialect.name == "postgresql":
+        session.execute(sql_text(f"SET LOCAL statement_timeout = {TEXT_SEARCH_TIMEOUT_MS}"))
+    try:
+        return _text_search(session, terms, year, subject, topic, limit)
+    except OperationalError as exc:
+        if getattr(exc.orig, "sqlstate", None) != "57014":  # query_canceled
+            raise
+        # Vencido el tope: se trata como búsqueda sin resultados (la vectorial sigue aportando)
+        # en vez de un 500; la transacción abortada se descarta.
+        session.rollback()
+        log.warning("text_search_timeout")
+        return []
+
+
+def _text_search(session, terms, year, subject, topic, limit) -> list[dict]:
+    config = literal_column("'spanish'::regconfig")
+    # Misma expresión que el índice GIN de la migración 0004.
+    document = func.to_tsvector(config, func.ateneo_unaccent(Chunk.text))
+    total = session.scalar(select(func.count()).select_from(Chunk)) or 0
+    # shortcut: IDF sin frecuencia del término (BM25 simplificado); pasar a BM25 si hace falta.
+    weights = []
+    for term in terms:
+        # websearch_to_tsquery no falla con ninguna entrada; una palabra vacía no casa nada.
+        tsquery = func.websearch_to_tsquery(config, term)
+        matches = session.scalar(
+            select(func.count()).select_from(Chunk).where(document.op("@@")(tsquery))
+        )
+        if matches:
+            weights.append(
+                case((document.op("@@")(tsquery), math.log(1 + total / matches)), else_=0.0)
+            )
+    if not weights:
+        return []
+    any_term = func.websearch_to_tsquery(config, " or ".join(terms))
+    # ts_rank solo desempata entre fragmentos con los mismos términos.
+    rank = sum(weights[1:], weights[0]) + func.ts_rank(document, any_term) / 100
+    statement = (
+        select_chunks(rank, year=year, subject=subject, topic=topic, limit=limit)
+        .where(document.op("@@")(any_term))
+        .order_by(rank.desc(), Chunk.id)
+    )
     return [dict(row) for row in session.execute(statement).mappings()]

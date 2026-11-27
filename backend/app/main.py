@@ -32,7 +32,12 @@ def http_error(request: Request, exc: HTTPException) -> JSONResponse:
 
 @app.exception_handler(RequestValidationError)
 def validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
-    return error_response(422, "validation_error", "Solicitud inválida.", exc.errors())
+    return error_response(
+        422,
+        "validation_error",
+        "Solicitud inválida.",
+        [{k: v for k, v in e.items() if k not in ("input", "ctx")} for e in exc.errors()],
+    )
 
 
 @app.middleware("http")
