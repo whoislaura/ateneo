@@ -267,6 +267,8 @@ class ExamOut(Contract):
     question_count: int
     duration_minutes: int
     total_points: float
+    status: Literal["pending", "ready", "failed"]
+    error: str | None
     questions: list[ExamQuestionOut]
     created_at: datetime
 

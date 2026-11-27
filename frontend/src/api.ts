@@ -305,6 +305,8 @@ export interface Exam {
   question_count: number
   duration_minutes: number
   total_points: number
+  status: 'pending' | 'ready' | 'failed'
+  error: string | null
   questions: ExamQuestion[]
   created_at: string
 }

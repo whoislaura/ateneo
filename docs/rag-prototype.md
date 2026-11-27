@@ -48,12 +48,14 @@ from app.rag.answer import PROVIDERS, answer_question
 from app.rag.vector import EMBEDDERS
 
 result = answer_question(
-    session,                     # Session de SQLAlchemy (pgvector) o Path de un índice SQLite
+    session,  # Session de SQLAlchemy (pgvector) o Path de un índice SQLite
     request.question,
-    PROVIDERS["openai"],         # (system, user) -> str; "fake" en pruebas
+    PROVIDERS["openai"],  # (system, user) -> str; "fake" en pruebas
     embedder=EMBEDDERS["openai"],  # el mismo modelo que indexó; "fake" por defecto
-    year=request.year, subject=request.subject, topic=request.topic,
-    mode=request.mode,           # "breve" (por defecto) o "desarrollada"
+    year=request.year,
+    subject=request.subject,
+    topic=request.topic,
+    mode=request.mode,  # "breve" (por defecto) o "desarrollada"
 )
 ```
 

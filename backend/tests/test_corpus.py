@@ -209,13 +209,19 @@ def test_upload_validation_and_roles(client, factory, pdfs, monkeypatch):
         assert db.scalars(select(HistoryEntry)).all() == []
 
 
+def create_exam(client, body):
+    """POST /exams da 202 pendiente; TestClient ya ejecutó la tarea, así que el GET es final."""
+    response = client.post("/api/v1/exams", headers=client.headers_for[Role.STUDENT], json=body)
+    assert response.status_code == 202, response.json()
+    assert response.json()["status"] == "pending" and response.json()["questions"] == []
+    return get(client, f"/exams/{response.json()['id']}", Role.STUDENT).json()
+
+
 def test_exam_uses_current_corpus_and_keeps_solutions_private(client, factory, pdfs):
     assert upload(client, pdfs["muestra-b"]).status_code == 201
     request = {"year": 1, "subject": "Civil", "topic": "Bienes", "difficulty": "medium"}
     student = client.headers_for[Role.STUDENT]
-    response = client.post("/api/v1/exams", headers=student, json=request | {"question_count": 4})
-    assert response.status_code == 201, response.json()
-    exam = response.json()
+    exam = create_exam(client, request | {"question_count": 4})
     assert [q["kind"] for q in exam["questions"]] == [
         "multiple_choice",
         "true_false",
@@ -229,11 +235,7 @@ def test_exam_uses_current_corpus_and_keeps_solutions_private(client, factory, p
     assert exam["total_points"] == 10 and exam["duration_minutes"] % 5 == 0
     assert exam["question_count"] == 4
 
-    only_test = client.post(
-        "/api/v1/exams",
-        headers=student,
-        json=request | {"question_count": 2, "types": ["true_false"]},
-    ).json()
+    only_test = create_exam(client, request | {"question_count": 2, "types": ["true_false"]})
     assert [q["kind"] for q in only_test["questions"]] == ["true_false"] * 2
     exams = [only_test, exam]
     assert get(client, "/exams", Role.STUDENT).json() == exams
@@ -257,34 +259,35 @@ def test_exam_uses_current_corpus_and_keeps_solutions_private(client, factory, p
             assert citation["quote"] == page["text"][citation["start"] : citation["end"]]
 
     body = request | {"question_count": 1}
-    for filters in ({"topic": "Otro"}, {"year": 2}, {"question_count": 20}):
+    for filters in ({"topic": "Otro"}, {"year": 2}):
         response = client.post("/api/v1/exams", headers=student, json=body | filters)
         assert response.status_code == 422
         assert "corpus vigente" in response.json()["error"]["message"]
     assert (
         client.post("/api/v1/exams", headers=student, json=body | {"types": []}).status_code == 422
     )
+    too_many = create_exam(client, body | {"question_count": 20})  # el corpus no da para tanto
+    assert too_many["status"] == "failed" and "corpus vigente" in too_many["error"]
+    assert too_many["questions"] == []
+    for suffix in ("pdf", "answers/pdf"):
+        assert get(client, f"/exams/{too_many['id']}/{suffix}", Role.STUDENT).status_code == 409
     retired = client.delete("/api/v1/documents/manual", headers=client.headers_for[Role.TEACHER])
     assert retired.status_code == 204
     assert client.post("/api/v1/exams", headers=student, json=body).status_code == 422
     assert get(client, path + "/answers", Role.STUDENT).json() == solutions
     with factory() as db:
-        assert len(db.scalars(select(Exam)).all()) == 2
+        assert len(db.scalars(select(Exam)).all()) == 3
         history = db.scalars(select(HistoryEntry).where(HistoryEntry.action == "exam")).all()
-        assert {item.exam_id for item in history} == {e["id"] for e in exams}
+        assert {item.exam_id for item in history} == {e["id"] for e in [*exams, too_many]}
 
 
 def test_feedback_saves_all_types_and_checks_reference_ownership(client, factory, pdfs):
     assert upload(client, pdfs["muestra-b"]).status_code == 201
     answer_id = ask(client, NEW_QUESTION).json()["id"]
     student = client.headers_for[Role.STUDENT]
-    exam = client.post(
-        "/api/v1/exams",
-        headers=student,
-        json={"year": 1, "subject": "Civil", "question_count": 1, "difficulty": "easy"},
-    )
-    assert exam.status_code == 201, exam.json()
-    exam_id = exam.json()["id"]
+    exam_id = create_exam(
+        client, {"year": 1, "subject": "Civil", "question_count": 1, "difficulty": "easy"}
+    )["id"]
     path = "/api/v1/feedback"
     for body, role in (
         ({"kind": "rating", "rating": 4, "answer_id": answer_id}, Role.STUDENT),
@@ -336,14 +339,9 @@ def test_exam_at_contract_limit_has_unique_questions(client, factory, pdfs):
             )
             offset += len(line) + 1
         db.commit()
-    headers = client.headers_for[Role.STUDENT]
-    response = client.post(
-        "/api/v1/exams",
-        headers=headers,
-        json={"year": 1, "subject": "Civil", "question_count": 20, "difficulty": "hard"},
+    exam = create_exam(
+        client, {"year": 1, "subject": "Civil", "question_count": 20, "difficulty": "hard"}
     )
-    assert response.status_code == 201, response.json()
-    exam = response.json()
     assert len(exam["questions"]) == 20
     statements = []
     engine = factory.kw["bind"]
@@ -377,13 +375,9 @@ def test_postgres_reindex_end_to_end(monkeypatch, pdfs):
             assert ask(client, OLD_QUESTION).json()["status"] == "no_evidence"
             assert ask(client, NEW_QUESTION).json()["status"] == "answered"
             student = client.headers_for[Role.STUDENT]
-            exam = client.post(
-                "/api/v1/exams",
-                headers=student,
-                json={"year": 1, "subject": "Civil", "question_count": 2, "difficulty": "hard"},
-            )
-            assert exam.status_code == 201, exam.json()
-            exam_id = exam.json()["id"]
+            exam_id = create_exam(
+                client, {"year": 1, "subject": "Civil", "question_count": 2, "difficulty": "hard"}
+            )["id"]
             solutions = get(client, f"/exams/{exam_id}/answers", Role.STUDENT).json()
             assert len(solutions) == 2
             assert all(

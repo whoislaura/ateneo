@@ -72,13 +72,13 @@ Cada usuario tiene un único rol. Sin sesión válida: 401. Sin permiso: 403. Re
 | `GET /history` | CU-04 | AT-11 | Estudiante, Profesor | `HistoryEntryOut[]` de consultas, conversaciones (`action: conversation`, con `conversation_id`) y generaciones propias, más recientes primero. `limit` de 1 a 100 (20 por defecto), `offset` desde 0 |
 | `DELETE /history/{entry_id}` | CU-04 | AT-11 | Autor | 204; borra la consulta, generación, conversación (con sus mensajes) o examen (con su clave) y sus datos guardados |
 | `DELETE /history` | CU-04 | AT-11 | Autor | 204; borra todas sus consultas, conversaciones, generaciones y exámenes con sus respuestas |
-| `POST /exams` | CU-06 | AT-27 | Estudiante, Profesor | 201 `ExamOut` sin respuestas. 422 si el corpus no permite generar la cantidad solicitada con citas verificables. 503 si falla el proveedor de IA |
+| `POST /exams` | CU-06 | AT-27 | Estudiante, Profesor | 202 `ExamOut` con `status` `pending` y sin preguntas: la generación sigue en segundo plano (consultar `GET /exams/{exam_id}`). 422 si el corpus no tiene material con esos filtros. Los fallos de generación (sin respaldo verificable para la mitad de las preguntas, proveedor de IA caído) no son un error HTTP: el examen queda en `failed` con `error` |
 | `GET /exams` | CU-06 | AT-27 | Estudiante, Profesor | `ExamOut[]` propios, más recientes primero. `limit` de 1 a 100 (20 por defecto), `offset` desde 0 |
-| `GET /exams/{exam_id}` | CU-06 | AT-27 | Autor | `ExamOut` |
+| `GET /exams/{exam_id}` | CU-06 | AT-27 | Autor | `ExamOut`; `status` es `pending`, `ready` o `failed` (con `error` legible). Un `pending` de más de 10 minutos se informa como `failed` (el servidor se reinició) |
 | `DELETE /exams/{exam_id}` | CU-06 | | Autor | 204; borra el examen, su clave de corrección, citas y entrada de historial. 404 si es de otro usuario |
 | `GET /exams/{exam_id}/answers` | CU-06, CU-05 | AT-27 | Autor | `ExamAnswerOut[]` con citas |
-| `GET /exams/{exam_id}/pdf` | CU-06 | | Autor | `application/pdf`: examen para el estudiante, sin soluciones |
-| `GET /exams/{exam_id}/answers/pdf` | CU-06, CU-05 | | Autor | `application/pdf`: clave de corrección con soluciones, puntuación y citas |
+| `GET /exams/{exam_id}/pdf` | CU-06 | | Autor | `application/pdf`: examen para el estudiante, sin soluciones. 409 si el examen no está `ready` |
+| `GET /exams/{exam_id}/answers/pdf` | CU-06, CU-05 | | Autor | `application/pdf`: clave de corrección con soluciones, puntuación y citas. 409 si el examen no está `ready` |
 | `POST /feedback` | CU-10 | AT-28 | Todos | 201 `FeedbackOut`. 404 si la referencia a una respuesta o examen no existe o pertenece a otro usuario |
 | `GET /admin/stats` | — | #29 | Administrador | `AdminStats` |
 | `GET /admin/users` | — | #29 | Administrador | `AdminUserOut[]`; filtros `q`, `role`, `limit`, `offset` |

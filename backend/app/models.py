@@ -279,6 +279,7 @@ class Exam(Base):
     __table_args__ = (
         CheckConstraint("year BETWEEN 1 AND 4", name="ck_exams_year"),
         CheckConstraint("question_count BETWEEN 1 AND 50", name="ck_exams_question_count"),
+        CheckConstraint("status IN ('pending', 'ready', 'failed')", name="ck_exams_status"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -289,6 +290,8 @@ class Exam(Base):
     difficulty: Mapped[Difficulty] = mapped_column(enum_type(Difficulty, "exam_difficulty"))
     question_count: Mapped[int] = mapped_column(SmallInteger)
     duration_minutes: Mapped[int] = mapped_column(SmallInteger, server_default="30")
+    status: Mapped[str] = mapped_column(String(10), server_default="ready")  # pending|ready|failed
+    error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = created_at()
 
     questions: Mapped[list["ExamQuestion"]] = relationship(order_by="ExamQuestion.position")

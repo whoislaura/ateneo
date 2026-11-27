@@ -55,9 +55,7 @@ def test_cli_search_uses_the_same_content_terms_as_answers(index, capsys):
     retrieved = retrieve(
         index, QUESTION, vector.fake_embedder, year=None, subject=None, topic=None, limit=5
     )
-    assert [item["document_id"] for item in found] == [
-        item["document_id"] for item in retrieved
-    ]
+    assert [item["document_id"] for item in found] == [item["document_id"] for item in retrieved]
 
 
 def test_cli_search_keeps_literal_queries_available(index, capsys):
