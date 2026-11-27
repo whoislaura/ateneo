@@ -27,6 +27,7 @@ export function Consulta() {
   const [thinking, setThinking] = useState(false)
   const [selected, setSelected] = useState<{ key: string; position: number } | null>(null)
   const [subject, setSubject] = useState('')
+  const [mode, setMode] = useState<NonNullable<TurnRequest['mode']>>('chat')
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [busyDelete, setBusyDelete] = useState(false)
   const [notice, setNotice] = useState('')
@@ -119,7 +120,7 @@ export function Consulta() {
     const question = text('question')
     if (!question) return
     const year = text('year')
-    const filters = { year: year ? Number(year) : undefined, subject: text('subject'), topic: text('topic') }
+    const filters = { year: year ? Number(year) : undefined, subject: text('subject'), topic: text('topic'), mode }
     if (inputRef.current) inputRef.current.value = ''
     void send(question, filters)
   }
@@ -129,7 +130,7 @@ export function Consulta() {
     const year = (form?.elements.namedItem('year') as HTMLSelectElement | null)?.value
     const read = (name: string) => (form?.elements.namedItem(name) as HTMLInputElement | null)?.value.trim() || undefined
     setItems((rows) => rows.filter((row) => row.kind !== 'error'))
-    void send(question, { year: year ? Number(year) : undefined, subject: read('subject'), topic: read('topic') }, true)
+    void send(question, { year: year ? Number(year) : undefined, subject: read('subject'), topic: read('topic'), mode }, true)
   }
 
   async function remove() {
@@ -190,7 +191,7 @@ export function Consulta() {
           <div className="thread" role="log" aria-live="polite" aria-label="Mensajes" aria-busy={busy} tabIndex={0}>
             {items.length === 0 && !loading && <p className="empty">Pregunta lo que necesites sobre el corpus. Las preguntas de seguimiento usan el contexto de la conversación.</p>}
             {items.map((item) => <Bubble key={item.key} item={item} selected={selected?.key === item.key ? selected.position : null} onSelect={(position) => setSelected(position === null ? null : { key: item.key, position })} onRetry={retry} busy={busy} />)}
-            {(thinking || loading) && <p className="bubble assistant loading" role="status">{loading ? 'Cargando la conversación…' : 'Pensando…'}</p>}
+            {(thinking || loading) && <p className="bubble assistant loading" role="status">{loading ? 'Cargando la conversación…' : (mode === 'desarrollada' ? 'Redactando una respuesta desarrollada; puede tardar un par de minutos…' : 'Pensando…')}</p>}
             <div ref={endRef} />
           </div>
           <form ref={formRef} className="composer" onSubmit={submit}>
@@ -216,6 +217,15 @@ export function Consulta() {
               </div>
               <CorpusOptions subjectsId="asignaturas" topicsId="temas" subject={subject} />
             </details>
+            <fieldset className="options" aria-describedby="modo-ayuda">
+              <legend>Tipo de respuesta</legend>
+              {([['chat', 'Conversacional'], ['desarrollada', 'Desarrollada']] as const).map(([value, label]) => (
+                <label key={value} className="choice">
+                  <input type="radio" name="mode" value={value} checked={mode === value} onChange={() => setMode(value)} /> {label}
+                </label>
+              ))}
+            </fieldset>
+            <p id="modo-ayuda" className="note">{mode === 'desarrollada' ? 'Planteamiento, desarrollo, fundamentación, conclusión y límites del corpus; tarda más.' : 'Respuesta conversacional y directa.'}</p>
             <label>
               Pregunta
               <textarea

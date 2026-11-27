@@ -109,6 +109,7 @@ export interface TurnRequest {
   year?: number
   subject?: string
   topic?: string
+  mode?: 'chat' | 'desarrollada'
 }
 
 // --- CU-03: corpus (AT-10, AT-23) ---

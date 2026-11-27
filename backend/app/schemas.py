@@ -205,6 +205,11 @@ class TurnRequest(Classification):
     """Pregunta de un turno; el hilo anterior lo pone el servidor."""
 
     question: Question
+    mode: Literal["chat", "desarrollada"] = Field(
+        default="chat",
+        description="«chat» (por defecto): respuesta conversacional. «desarrollada»: estructura "
+        "Planteamiento, Desarrollo, Fundamentación, Conclusión y Límites del corpus.",
+    )
 
 
 class MessageOut(Contract):

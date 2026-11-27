@@ -307,9 +307,9 @@ def run_turn(
         )
         previous = [(m.role.value, m.content) for m in reversed(list(recent))]
     conversation_id = conversation.id if conversation else None
-    filters = body.model_dump(exclude={"question"})
+    filters = body.model_dump(exclude={"question", "mode"})
     try:  # el rollback previo a la llamada al LLM expira `conversation`
-        result = query.ask(db, body.question, mode="chat", history=previous, **filters)
+        result = query.ask(db, body.question, mode=body.mode, history=previous, **filters)
     except (ProviderError, OSError) as exc:
         raise ai_unavailable(exc, "El servicio de respuestas no está disponible.") from exc
     answer_status, content, valid = citations.validate(db, result)

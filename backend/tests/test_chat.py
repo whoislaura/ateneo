@@ -219,3 +219,20 @@ def test_migration_0005_downgrades_and_upgrades_again(monkeypatch):
         command.upgrade(config, "head")
     finally:
         command.downgrade(config, "base")
+
+
+def test_developed_mode_in_conversation(client):
+    response = client.post(
+        "/api/v1/conversations",
+        json={"question": FIRST, "mode": "desarrollada"},
+        headers=headers(client),
+    )
+    assert response.status_code == 201, response.text
+    reply = response.json()["messages"][1]
+    assert reply["status"] == "answered" and "## Planteamiento" in reply["content"]
+    bad = client.post(
+        "/api/v1/conversations",
+        json={"question": FIRST, "mode": "breve"},
+        headers=headers(client),
+    )
+    assert bad.status_code == 422
