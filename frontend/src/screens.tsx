@@ -126,7 +126,7 @@ export function Examen() {
             <CorpusOptions subjectsId="exam-subjects" />
             <label>Tema <input name="topic" maxLength={200} /></label>
             <label>Cantidad de preguntas
-              <input name="question_count" type="number" min={1} max={50} defaultValue={2} required />
+              <input name="question_count" type="number" min={1} max={20} defaultValue={2} required />
             </label>
             <label>Dificultad
               <select name="difficulty" defaultValue="medium">

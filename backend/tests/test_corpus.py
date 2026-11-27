@@ -257,7 +257,7 @@ def test_exam_uses_current_corpus_and_keeps_solutions_private(client, factory, p
             assert citation["quote"] == page["text"][citation["start"] : citation["end"]]
 
     body = request | {"question_count": 1}
-    for filters in ({"topic": "Otro"}, {"year": 2}, {"question_count": 50}):
+    for filters in ({"topic": "Otro"}, {"year": 2}, {"question_count": 20}):
         response = client.post("/api/v1/exams", headers=student, json=body | filters)
         assert response.status_code == 422
         assert "corpus vigente" in response.json()["error"]["message"]
@@ -340,11 +340,11 @@ def test_exam_at_contract_limit_has_unique_questions(client, factory, pdfs):
     response = client.post(
         "/api/v1/exams",
         headers=headers,
-        json={"year": 1, "subject": "Civil", "question_count": 50, "difficulty": "hard"},
+        json={"year": 1, "subject": "Civil", "question_count": 20, "difficulty": "hard"},
     )
     assert response.status_code == 201, response.json()
     exam = response.json()
-    assert len(exam["questions"]) == 50
+    assert len(exam["questions"]) == 20
     statements = []
     engine = factory.kw["bind"]
 
@@ -353,7 +353,7 @@ def test_exam_at_contract_limit_has_unique_questions(client, factory, pdfs):
 
     event.listen(engine, "before_cursor_execute", listener)
     try:
-        assert len(get(client, f"/exams/{exam['id']}/answers", Role.STUDENT).json()) == 50
+        assert len(get(client, f"/exams/{exam['id']}/answers", Role.STUDENT).json()) == 20
     finally:
         event.remove(engine, "before_cursor_execute", listener)
     assert len(statements) < 10  # sin N+1: las citas no se cargan pregunta a pregunta

@@ -79,15 +79,15 @@ def test_out_of_corpus_generation_is_no_evidence(index, format):
 @pytest.mark.parametrize(
     ("format", "reply"),
     [
-        ("summary", f"{A} [F1]\nSin fuente."),
-        ("outline", f"* {A} [F1]"),
-        ("outline", f"- Tema\n    - {A} [F1]"),
-        ("outline", f"- {A} [F1]\n- Hoja sin fuente"),
-        ("table", f"| Fuente | {A} [F1] |"),
-        ("table", f"| A | B |\n|---|---|\n| x | {A} [F1] | extra |"),
-        ("table", "| A | B |\n|---|---|\n| x | sin marca |\n" + f"| y | {A} [F1] |"),
-        ("diagram", f"{A} [F1]"),
-        ("diagram", f"x -> {A} [F1]\nx -> z"),
+        ("summary", f"{A} [F2]\nSin fuente."),
+        ("outline", f"* {A} [F2]"),
+        ("outline", f"- Tema\n    - {A} [F2]"),
+        ("outline", f"- {A} [F2]\n- Hoja sin fuente"),
+        ("table", f"| Fuente | {A} [F2] |"),
+        ("table", f"| A | B |\n|---|---|\n| x | {A} [F2] | extra |"),
+        ("table", "| A | B |\n|---|---|\n| x | sin marca |\n" + f"| y | {A} [F2] |"),
+        ("diagram", f"{A} [F2]"),
+        ("diagram", f"x -> {A} [F2]\nx -> z"),
     ],
 )
 def test_malformed_output_becomes_no_evidence(index, format, reply):

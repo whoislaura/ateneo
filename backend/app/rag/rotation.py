@@ -42,15 +42,15 @@ def rotating(call, prefix: str):
     """Envuelve `call(*args, key=...)`; sin claves, `call` explica qué variable falta."""
 
     @functools.wraps(call)
-    def wrapper(*args):
+    def wrapper(*args, **kwargs):
         keys = api_keys(prefix)
         if not keys:
-            return call(*args)
+            return call(*args, **kwargs)
         attempts, first = max(len(keys), 2), _next.get(prefix, 0)
         for attempt in range(attempts):
             index = (first + attempt) % len(keys)
             try:
-                result = call(*args, key=keys[index])
+                result = call(*args, key=keys[index], **kwargs)
             except (URLError, TimeoutError, ConnectionError, http.client.HTTPException) as error:
                 _next[prefix] = index + 1
                 if not transient(error) or timed_out(error) or attempt == attempts - 1:

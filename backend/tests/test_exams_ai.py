@@ -95,7 +95,7 @@ def test_questions_without_verifiable_citation_are_discarded(db):
     wrong_marker = {"kind": "development", "statement": "P4", "answer": f"{sentence} [F99]"}
     calls = []
 
-    def provider(system, user):
+    def provider(system, user, **_):
         calls.append(user)
         return json.dumps({"questions": [valid, invented, uncited, wrong_marker]})
 
@@ -114,7 +114,7 @@ def test_retry_asks_only_for_missing_questions_after_invalid_json(db):
     passages = load_passages(db, year=1, subject="Civil", topic=None, count=2, rng=random.Random(0))
     replies = iter(["Lo siento, no puedo", exam.fake_provider])
 
-    def provider(system, user):
+    def provider(system, user, **_):
         reply = next(replies)
         return reply if isinstance(reply, str) else reply(system, user)
 
@@ -135,7 +135,7 @@ def test_malformed_test_questions_are_dropped(db):
         base | {"options": ["a", "b", "c", "d"], "correct": "E"},
     ]
     result = generate_exam(
-        db, ["multiple_choice"], passages, "easy", lambda s, u: json.dumps({"questions": bad})
+        db, ["multiple_choice"], passages, "easy", lambda s, u, **_: json.dumps({"questions": bad})
     )
     assert result == []
 

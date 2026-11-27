@@ -99,6 +99,7 @@ SENTENCE = re.compile(r"[^\s.!?][^.!?\n]*[.!?]?")
 # un punto sin espacio detrás ("1.850") no corta.
 SEGMENT = re.compile(r"(?:[^.!?\n]|[.!?](?![\s\[]|$))*(?:[.!?]+(?:[ \t]*\[F\d+\])*[ \t]*|\n|$)")
 DROPPED = "Oración eliminada: su cita no es verificable o tiene cifras sin marca."
+LINK_TERMS = 12  # máximo de términos de contenido de una oración sin marca
 MODES = ("breve", "desarrollada", "chat")
 
 Provider = Callable[[str, str], str]
@@ -177,8 +178,13 @@ def fake_provider(system: str, user: str) -> str:
     return "\n".join(f"## {h}\n{text}" for h, text in zip(HEADINGS, sections, strict=True))
 
 
-def openai_compatible_provider(system: str, user: str, key: str | None = None) -> str:
-    """API de chat compatible con OpenAI; la clave viene del entorno (o de `rotation`)."""
+def openai_compatible_provider(
+    system: str, user: str, key: str | None = None, *, max_tokens: int | None = None
+) -> str:
+    """API de chat compatible con OpenAI; la clave viene del entorno (o de `rotation`).
+
+    `max_tokens` (opcional) sustituye al tope por defecto, p. ej. en los exámenes.
+    """
     key, model = key or os.environ.get("ATENEO_LLM_API_KEY"), os.environ.get("ATENEO_LLM_MODEL")
     if not key or not model:
         raise ValueError(
@@ -191,10 +197,18 @@ def openai_compatible_provider(system: str, user: str, key: str | None = None) -
         "temperature": 0,
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
         # Sin tope explícito algunos proveedores gratuitos cortan la respuesta en pocos tokens.
-        "max_tokens": env_int("ATENEO_LLM_MAX_TOKENS", 3000, 100, 32000),
+        "max_tokens": max_tokens or env_int("ATENEO_LLM_MAX_TOKENS", 3000, 100, 32000),
     }
+    # Los modelos con razonamiento gastan max_tokens pensando y cortan la respuesta.
+    effort = os.environ.get("ATENEO_LLM_REASONING", "").strip().lower()
+    if effort and effort not in ("low", "medium", "high"):
+        raise ValueError("ATENEO_LLM_REASONING debe ser low, medium, high o vacío.")
+    if effort:
+        payload["reasoning"] = {"effort": effort}
     if system == REWRITE_PROMPT:
         payload["max_tokens"] = 200
+        if effort:
+            payload["reasoning"] = {"effort": "low"}
     request = urllib.request.Request(
         base_url + "/chat/completions",
         data=json.dumps(payload).encode("utf-8"),
@@ -365,24 +379,57 @@ def claim_in_line(text: str, position: int) -> str:
     return claim_before(text[start:], position - start)
 
 
-def quote_citation(passage: dict, claim: str) -> dict | None:
-    """Cita la oración del fragmento más parecida a la afirmación (None si no comparte términos).
+# Oración de una cita: el punto cierra solo ante espacio o final y no tras abreviaturas
+# jurídicas ("art. 5", "núm. 3") ni dentro de una cifra ("1.850").
+QUOTE_SENTENCE = re.compile(
+    r"[^\s][^\n]*?(?:(?<!\bart)(?<!\barts)(?<!\bnúm)(?<!\binc)(?<!\bapdo)(?<!\bdr)"
+    r"(?<!\bsr)(?<!\bsra)(?<!\blic)[.!?](?=\s|$)|(?=\n)|$)",
+    re.IGNORECASE,
+)
+MAX_QUOTE = 400  # caracteres; una oración más larga se recorta alrededor de la cifra citada
 
+
+def quote_window(sentence: str, numbers: set[str]) -> tuple[int, int]:
+    """Tramo (inicio, fin) de la oración de a lo sumo MAX_QUOTE caracteres, con la cifra."""
+    end = len(sentence.rstrip())
+    if end <= MAX_QUOTE:
+        return 0, end
+    hit = next((m.start() for m in DIGITS.finditer(sentence) if m.group() in numbers), 0)
+    start = max(hit - MAX_QUOTE // 4, 0)
+    if start:  # empieza en una palabra entera
+        start = sentence.find(" ", start) + 1 or start
+    stop = min(start + MAX_QUOTE, end)
+    if stop < end:
+        stop = sentence.rfind(" ", start, stop) if " " in sentence[start:stop] else stop
+    return start, max(stop, start + 1)
+
+
+def quote_citation(passage: dict, claim: str) -> dict | None:
+    """Cita la oración del fragmento que mejor respalda la afirmación (None si no basta).
+
+    Respalda si comparte al menos 2 términos de contenido (1 si la afirmación tiene 3 o menos);
+    entre las que respaldan se prefiere la que contiene las cifras de la afirmación.
     En un fragmento ampliado solo valen oraciones contenidas en uno de sus `chunks`.
     """
     text, wanted, base = passage["text"], set(content_terms(claim)), passage["start"]
+    numbers = set(DIGITS.findall(claim))
+    needed = 1 if len(wanted) <= 3 else 2
     chunks = passage.get("chunks") or [(passage["chunk_id"], passage["start"], passage["end"])]
-    chunk_id, first, last = chunks[0]
-    span, best = (first - base, last - base), 0
-    for match in SENTENCE.finditer(text):
-        score = len(wanted & set(content_terms(match.group())))
-        start, end = match.start(), match.start() + len(match.group().rstrip())
+    best, found = (-1, 0), None
+    for match in QUOTE_SENTENCE.finditer(text):
+        sentence = match.group()
+        terms = len(wanted & set(content_terms(sentence)))
+        start, end = match.start(), match.start() + len(sentence.rstrip())
         owner = next((c for c in chunks if c[1] <= base + start and base + end <= c[2]), None)
-        if owner and score > best:
-            span, best, chunk_id = (start, end), score, owner[0]
-    # El texto del fragmento es page.text[start:end], así que los offsets pasan a la página.
-    if not best:  # sin ningún término en común, la cita no respalda la afirmación
+        score = (len(numbers & set(DIGITS.findall(sentence))), terms)
+        if owner and terms >= needed and score > best:
+            best, found = score, (owner[0], match.start(), sentence)
+    if not found:  # sin términos suficientes en común, la cita no respalda la afirmación
         return None
+    chunk_id, offset, sentence = found
+    first, last = quote_window(sentence, numbers)
+    span = (offset + first, offset + last)
+    # El texto del fragmento es page.text[start:end], así que los offsets pasan a la página.
     return {
         "chunk_id": chunk_id,
         "document_id": passage["document_id"],
@@ -508,6 +555,8 @@ def cite_reply(
         if (
             all(at in valid for at in marks)
             and (marks or not DIGITS.search(text))
+            # Una oración de enlace es corta: una larga sin marca es una afirmación sin respaldo.
+            and (marks or len(content_terms(text)) <= LINK_TERMS)
             and not MALFORMED.search(text)
         ):
             kept.append((segment.start(), text))

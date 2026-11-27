@@ -3,7 +3,7 @@
 Las filas anteriores quedan como `completion` con 1 punto y 30 minutos de duración.
 
 Revision ID: 0006
-Revises: 0004
+Revises: 0005
 Create Date: 2026-11-26
 
 """

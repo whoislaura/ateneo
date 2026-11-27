@@ -208,7 +208,7 @@ def test_exam_quantity_is_exact_or_rejected(exam_db, monkeypatch):
         other = ExamRequest(year=2, subject="Civil", question_count=1, difficulty="easy")
         with pytest.raises(HTTPException):
             make_questions(db, other)
-        monkeypatch.setitem(exam_providers, "fake", lambda system, user: "no es JSON")
+        monkeypatch.setitem(exam_providers, "fake", lambda system, user, **_: "no es JSON")
         broken = ExamRequest(year=1, subject="Civil", question_count=3, difficulty="easy")
         with pytest.raises(HTTPException) as error:
             make_questions(db, broken)

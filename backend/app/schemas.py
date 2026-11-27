@@ -243,7 +243,7 @@ class ExamRequest(Contract):
     year: Year
     subject: Text
     topic: Text | None = None
-    question_count: int = Field(ge=1, le=50)
+    question_count: int = Field(ge=1, le=20)
     difficulty: Difficulty
     # Por defecto, mixto: test, verdadero/falso, desarrollo y caso práctico.
     types: list[ExamKind] | None = Field(default=None, min_length=1, max_length=4)

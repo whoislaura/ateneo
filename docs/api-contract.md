@@ -108,7 +108,7 @@ Implementado en `backend/app/corpus.py`; las rutas de `api.py` solo lo invocan.
 
 `shortcut:` el PDF se procesa de forma síncrona y en memoria, y Starlette recibe el cuerpo entero antes de comprobar el límite; Nginx corta en 25 MB con `client_max_body_size` (ver [despliegue](deployment.md#límites-de-subida)). Basta para el tamaño del corpus del MVP; pasar a una cola de trabajos (respuesta 202 y estado `processing`) cuando las subidas tarden más que el timeout del proxy o se usen embeddings remotos con documentos grandes.
 
-`POST /generations` recibe `format` (`summary`, `outline`, `table`, `diagram`) y `prompt`; el contenido se devuelve como texto estructurado en `content` (ver [Generación](#generación-cu-02-at-17)). `POST /exams` recibe año, asignatura, tema opcional, `question_count` (1–50), `difficulty` (`easy`, `medium`, `hard`) y `types` opcional (lista no vacía de `multiple_choice`, `true_false`, `development`, `case`; por defecto, examen mixto). `POST /feedback` recibe `kind`: `rating` exige `rating` de 1 a 5; `error` y `suggestion` exigen `comment`. `answer_id` y `exam_id` vinculan opcionalmente el feedback.
+`POST /generations` recibe `format` (`summary`, `outline`, `table`, `diagram`) y `prompt`; el contenido se devuelve como texto estructurado en `content` (ver [Generación](#generación-cu-02-at-17)). `POST /exams` recibe año, asignatura, tema opcional, `question_count` (1–20), `difficulty` (`easy`, `medium`, `hard`) y `types` opcional (lista no vacía de `multiple_choice`, `true_false`, `development`, `case`; por defecto, examen mixto). `POST /feedback` recibe `kind`: `rating` exige `rating` de 1 a 5; `error` y `suggestion` exigen `comment`. `answer_id` y `exam_id` vinculan opcionalmente el feedback.
 
 ## Administración
 

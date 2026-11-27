@@ -46,6 +46,7 @@ Compose construye `DATABASE_URL` con `POSTGRES_*` (por eso `POSTGRES_PASSWORD` s
 | `ATENEO_LLM_API_KEYS`, `ATENEO_EMBED_API_KEYS` | Claves separadas por comas (cuentas rotativas); alternativa: `*_API_KEY` con una sola |
 | `ATENEO_LLM_MODEL`, `ATENEO_EMBED_MODEL` | Modelos; obligatorios con `openai` |
 | `ATENEO_LLM_BASE_URL`, `ATENEO_EMBED_BASE_URL` | Por defecto `https://api.openai.com/v1` |
+| `ATENEO_LLM_REASONING` | `low`, `medium`, `high` o vacío (defecto: no se envía). Se envía como `"reasoning": {"effort": ...}`; en modelos con razonamiento evita que los tokens de pensamiento agoten `max_tokens` y corten la respuesta (en `render.yaml`, `low`). La reformulación del chat usa siempre `low` si está definida |
 | `ATENEO_EMBED_DIM`, `ATENEO_MAX_DISTANCE` | 256 y 0.5; ver [prototipo RAG](rag-prototype.md) |
 | `ATENEO_RETRIEVAL` | Recuperación en PostgreSQL: `hybrid` (defecto; texto completo y vector fusionados por RRF), `text` o `vector`. Ver [QA del RAG](qa-rag.md#recuperación-híbrida) |
 

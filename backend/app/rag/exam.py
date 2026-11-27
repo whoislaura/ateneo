@@ -140,7 +140,7 @@ def build_prompt(passages: list[dict], kinds: list[str]) -> str:
 # --- Proveedor determinista (pruebas, CI y demo sin clave) ---
 
 
-def fake_provider(system: str, user: str) -> str:
+def fake_provider(system: str, user: str, *, max_tokens: int | None = None) -> str:
     """Un examen válido de cada tipo pedido; una oración distinta por pregunta (hasta agotarlas)."""
     body, _, wanted = user.rpartition(f"{SEPARATOR}Tipos solicitados: ")
     flat = []  # (marca, título, oración)
@@ -206,13 +206,29 @@ PROVIDERS: dict[str, Provider] = {"fake": fake_provider, "openai": answer.PROVID
 # --- Validación de la respuesta del modelo ---
 
 
+def partial_questions(reply: str) -> list:
+    """Objetos de `questions` completos antes del corte de un JSON truncado."""
+    opening = re.search(r'"questions"\s*:\s*\[', reply)
+    items, position, decoder = [], opening.end() if opening else len(reply), json.JSONDecoder()
+    while match := re.compile(r"[\s,]*").match(reply, position):
+        try:
+            item, position = decoder.raw_decode(reply, match.end())
+        except ValueError:
+            break
+        items.append(item)
+    return items
+
+
 def parse_questions(reply: str) -> list[dict]:
-    """Extrae el objeto JSON (con o sin cercas de código) y descarta los elementos mal formados."""
+    """Extrae el objeto JSON (con o sin cercas de código) y descarta los elementos mal formados.
+
+    Si el JSON está cortado (el modelo agotó `max_tokens`) recupera las preguntas ya cerradas.
+    """
     start = reply.find("{")
     try:
         data, _ = json.JSONDecoder().raw_decode(reply[start:]) if start >= 0 else ([], 0)
     except ValueError:
-        return []
+        return [i for i in partial_questions(reply) if isinstance(i, dict)]
     items = data.get("questions") if isinstance(data, dict) else None
     return [i for i in items if isinstance(i, dict)] if isinstance(items, list) else []
 
@@ -225,7 +241,7 @@ def clean_item(item: dict, kind: str) -> dict | None:
     out = {"statement": statement.strip(), "body": re.sub(r"\[\d+\]", "", body).strip()}
     criteria = item.get("criteria")
     out["criteria"] = criteria.strip() if isinstance(criteria, str) and criteria.strip() else None
-    out["options"], out["verdict"] = None, ""
+    out["options"], out["verdict"], out["correct_option"] = None, "", ""
     if kind == "multiple_choice":
         options = item.get("options")
         letter = str(item.get("correct", "")).strip().upper()[:1]
@@ -238,7 +254,8 @@ def clean_item(item: dict, kind: str) -> dict | None:
         ):
             return None
         out["options"] = [o.strip() for o in options]
-        out["verdict"] = f"Opción correcta: {letter}) {out['options'][LETTERS.index(letter)]}\n"
+        out["correct_option"] = out["options"][LETTERS.index(letter)]
+        out["verdict"] = f"Opción correcta: {letter}) {out['correct_option']}\n"
     elif kind == "true_false":
         value = str(item.get("correct", "")).strip().casefold()
         if value not in ("true", "false", "verdadero", "falso"):
@@ -247,15 +264,31 @@ def clean_item(item: dict, kind: str) -> dict | None:
     return out
 
 
+def backed(text: str, quotes: str) -> bool:
+    """El texto comparte al menos 2 términos de contenido (1 si tiene 2 o menos) con las citas."""
+    terms = set(content_terms(text))
+    return bool(terms) and len(terms & set(content_terms(quotes))) >= min(2, len(terms))
+
+
 def cite_question(db: Session, passages: list[dict], clean: dict) -> dict | None:
     """Cita la solución como en CU-01 (modo estricto); None si alguna línea no se respalda."""
     cited = cite_reply(db, passages, clean["body"], claim_in_line)
     if cited.get("status") != "answered" or cited["invalid_citations"]:
         return None
+    # La opción correcta y el veredicto V/F deben salir de lo citado, no solo del modelo.
+    quotes = " ".join(c["quote"] for c in cited["citations"])
+    if clean["options"] and not backed(clean["correct_option"], quotes):
+        return None
+    if clean["verdict"] and not clean["options"] and not backed(clean["statement"], quotes):
+        return None
     lines = [line for line in cited["answer"].splitlines() if line.strip()]
     if not lines or not all(CITED.search(line) for line in lines):
         return None
     return {**clean, "answer": clean["verdict"] + cited["answer"], "citations": cited["citations"]}
+
+
+def exam_tokens(count: int) -> int:
+    return min(1000 + 700 * count, 16000)
 
 
 def generate_exam(
@@ -276,7 +309,9 @@ def generate_exam(
         if not wanted:
             break
         release_connection(db)
-        reply = provider(system, build_prompt(passages, wanted))
+        # Un examen largo no cabe en el tope de una consulta: proporcional a las preguntas.
+        prompt, tokens = build_prompt(passages, wanted), exam_tokens(len(wanted))
+        reply = provider(system, prompt, max_tokens=tokens)
         for item in parse_questions(reply):
             kind = item.get("kind")
             if kind not in pending or pending[kind] <= 0:
