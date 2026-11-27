@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import {
   api,
@@ -26,6 +26,14 @@ export function Examen() {
   const [listStatus, setListStatus] = useState('Cargando exámenes guardados…')
   const [listError, setListError] = useState('')
   const [page, setPage] = useState({ offset: 0, more: false })
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const dialogRef = useRef<HTMLDialogElement>(null)
+
+  useEffect(() => {
+    const dialog = dialogRef.current
+    if (confirmDelete && !dialog?.open) dialog?.showModal()
+    if (!confirmDelete && dialog?.open) dialog.close()
+  }, [confirmDelete])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -91,6 +99,23 @@ export function Examen() {
       setError(errorMessage(err))
     } finally {
       setPending(false)
+    }
+  }
+
+  async function remove() {
+    if (!exam) return
+    setPending(true)
+    setError('')
+    try {
+      await api<void>(`/exams/${exam.id}`, { method: 'DELETE' })
+      setExams((items) => items.filter((item) => item.id !== exam.id))
+      setExam(null)
+      setAnswers([])
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setPending(false)
+      setConfirmDelete(false)
     }
   }
 
@@ -176,6 +201,9 @@ export function Examen() {
             <button type="button" className="secondary" disabled={pending} onClick={() => save(`/exams/${exam.id}/answers/pdf`, `clave-examen-${exam.id}.pdf`)}>
               Descargar clave (PDF)
             </button>
+            <button type="button" className="secondary danger small" disabled={pending} onClick={() => setConfirmDelete(true)}>
+              Borrar examen
+            </button>
           </div>
           <form key={exam.id} onSubmit={reveal}>
             <ol className="questions">
@@ -224,6 +252,14 @@ export function Examen() {
           <Link className="feedback-link" to={`/feedback?exam_id=${exam.id}`}>Enviar feedback de este examen</Link>
         </section>
       )}
+      <dialog ref={dialogRef} aria-labelledby="examen-borrar-titulo" aria-describedby="examen-borrar-texto" onClose={() => setConfirmDelete(false)}>
+        <h2 id="examen-borrar-titulo">Borrar examen</h2>
+        <p id="examen-borrar-texto">Se borrará el examen {exam?.id} con su clave de corrección. Esta acción no se puede deshacer.</p>
+        <div className="actions">
+          <button type="button" className="secondary" autoFocus disabled={pending} onClick={() => setConfirmDelete(false)}>Cancelar</button>
+          <button type="button" disabled={pending} onClick={() => void remove()}>{pending ? 'Eliminando…' : 'Eliminar'}</button>
+        </div>
+      </dialog>
     </>
   )
 }

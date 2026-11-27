@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import logging
 import math
 import os
 import unicodedata
@@ -9,6 +10,8 @@ import urllib.request
 from collections.abc import Callable
 
 from sqlalchemy import case, delete, func, insert, literal_column, select
+from sqlalchemy import text as sql_text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.models import Chunk, DocumentStatus, PageStatus
@@ -17,6 +20,10 @@ from app.models import Page as PageRow
 from app.rag.index import MAX_LIMIT, content_terms, document_report
 from app.rag.ingestion import Document, IngestionError
 from app.rag.rotation import ProviderError, rotating
+
+log = logging.getLogger("ateneo.rag")
+MAX_TEXT_TERMS = 12
+TEXT_SEARCH_TIMEOUT_MS = 5000
 
 Embedder = Callable[[list[str]], list[list[float]]]
 
@@ -234,8 +241,26 @@ def text_search(
     """
     check_search(year, limit, query)
     terms = list(dict.fromkeys(content_terms(query)))
+    if len(terms) > MAX_TEXT_TERMS:  # cada término cuesta un COUNT sobre todo el corpus
+        longest = sorted(terms, key=len, reverse=True)[:MAX_TEXT_TERMS]
+        terms = [term for term in terms if term in longest]
     if not terms:
         return []
+    if session.get_bind().dialect.name == "postgresql":
+        session.execute(sql_text(f"SET LOCAL statement_timeout = {TEXT_SEARCH_TIMEOUT_MS}"))
+    try:
+        return _text_search(session, terms, year, subject, topic, limit)
+    except OperationalError as exc:
+        if getattr(exc.orig, "sqlstate", None) != "57014":  # query_canceled
+            raise
+        # Vencido el tope: se trata como búsqueda sin resultados (la vectorial sigue aportando)
+        # en vez de un 500; la transacción abortada se descarta.
+        session.rollback()
+        log.warning("text_search_timeout")
+        return []
+
+
+def _text_search(session, terms, year, subject, topic, limit) -> list[dict]:
     config = literal_column("'spanish'::regconfig")
     # Misma expresión que el índice GIN de la migración 0004.
     document = func.to_tsvector(config, func.ateneo_unaccent(Chunk.text))

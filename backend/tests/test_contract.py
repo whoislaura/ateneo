@@ -37,6 +37,7 @@ CONTRACT = {
     ("post", "/api/v1/exams"),
     ("get", "/api/v1/exams"),
     ("get", "/api/v1/exams/{exam_id}"),
+    ("delete", "/api/v1/exams/{exam_id}"),
     ("get", "/api/v1/exams/{exam_id}/answers"),
     ("get", "/api/v1/exams/{exam_id}/pdf"),
     ("get", "/api/v1/exams/{exam_id}/answers/pdf"),

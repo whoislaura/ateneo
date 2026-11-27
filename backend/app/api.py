@@ -5,6 +5,7 @@ Los permisos por rol (AT-08) se aplican: 401 sin sesión y 403 sin rol.
 
 import logging
 import math
+import re
 from datetime import UTC, datetime
 from typing import Annotated
 
@@ -15,6 +16,7 @@ from sqlalchemy.orm import Session, selectinload
 from app import citations, corpus, exam_pdf, exams, generation, query
 from app.auth import (
     TOKEN_TTL,
+    ai_quota,
     authenticate,
     client_ip,
     create_session,
@@ -81,6 +83,9 @@ UNAVAILABLE = {503: {"model": ErrorResponse}}
 ai_log = logging.getLogger("ateneo.ai")
 
 
+SECRET = re.compile(r"\bsk-[A-Za-z0-9_-]+|Bearer\s+\S+", re.IGNORECASE)
+
+
 def ai_unavailable(exc: Exception, message: str) -> HTTPException:
     """503 del contrato, registrando la causa (tipo, código HTTP y mensaje del proveedor)."""
     cause = f"{type(exc).__name__} {getattr(exc, 'code', '')}".strip()
@@ -91,7 +96,7 @@ def ai_unavailable(exc: Exception, message: str) -> HTTPException:
             pass
     elif str(exc):
         cause += f": {str(exc)[:300]}"
-    ai_log.warning("ai_error", extra={"error": cause})
+    ai_log.warning("ai_error", extra={"error": SECRET.sub("[redactado]", cause)})
     return HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, message)
 
 
@@ -99,6 +104,7 @@ public = APIRouter(prefix="/api/v1", responses=ERRORS)
 router = APIRouter(prefix="/api/v1", responses=ERRORS, dependencies=[Depends(current_user)])
 
 STUDY = [Depends(require_roles(Role.STUDENT, Role.TEACHER))]
+AI = [*STUDY, Depends(ai_quota)]  # endpoints que llaman al LLM
 CORPUS = [Depends(require_roles(Role.TEACHER, Role.ADMIN))]
 
 
@@ -181,7 +187,7 @@ def answer_out(answer: Answer) -> AnswerOut:
     response_model=AnswerOut,
     status_code=201,
     responses={503: {"model": ErrorResponse}},
-    dependencies=STUDY,
+    dependencies=AI,
     tags=["consulta"],
 )
 def create_query(
@@ -222,7 +228,7 @@ def create_query(
     response_model=AnswerOut,
     status_code=201,
     responses={503: {"model": ErrorResponse}},
-    dependencies=STUDY,
+    dependencies=AI,
     tags=["consulta"],
 )
 def create_generation(
@@ -304,7 +310,7 @@ def run_turn(
     filters = body.model_dump(exclude={"question"})
     try:  # el rollback previo a la llamada al LLM expira `conversation`
         result = query.ask(db, body.question, mode="chat", history=previous, **filters)
-    except (ValueError, OSError) as exc:
+    except (ProviderError, OSError) as exc:
         raise ai_unavailable(exc, "El servicio de respuestas no está disponible.") from exc
     answer_status, content, valid = citations.validate(db, result)
     now = datetime.now(UTC)
@@ -360,7 +366,7 @@ def run_turn(
     response_model=TurnOut,
     status_code=201,
     responses={503: {"model": ErrorResponse}},
-    dependencies=STUDY,
+    dependencies=AI,
     tags=["conversaciones"],
 )
 def create_conversation(
@@ -377,7 +383,7 @@ def create_conversation(
     response_model=TurnOut,
     status_code=201,
     responses=NOT_FOUND | {503: {"model": ErrorResponse}},
-    dependencies=STUDY,
+    dependencies=AI,
     tags=["conversaciones"],
 )
 def send_message(
@@ -634,6 +640,18 @@ def delete_answers(db: Session, answer_ids: list[int]) -> None:
     db.execute(delete(Answer).where(Answer.id.in_(answer_ids)))
 
 
+def delete_exams(db: Session, exam_ids: list[int]) -> None:
+    """Borra exámenes con preguntas (y claves de corrección), citas y entradas de historial."""
+    if not exam_ids:
+        return
+    questions = select(ExamQuestion.id).where(ExamQuestion.exam_id.in_(exam_ids))
+    db.execute(delete(Citation).where(Citation.question_id.in_(questions)))
+    db.execute(update(Feedback).where(Feedback.exam_id.in_(exam_ids)).values(exam_id=None))
+    db.execute(delete(HistoryEntry).where(HistoryEntry.exam_id.in_(exam_ids)))
+    db.execute(delete(ExamQuestion).where(ExamQuestion.exam_id.in_(exam_ids)))
+    db.execute(delete(Exam).where(Exam.id.in_(exam_ids)))
+
+
 def deletable_history(
     db: Session, entry_id: int, user: User, action: tuple[HistoryAction, ...]
 ) -> HistoryEntry:
@@ -655,9 +673,11 @@ def delete_history_entry(
     user: Annotated[User, Depends(current_user)],
     db: Annotated[Session, Depends(get_db)],
 ):
-    """Autor. Borra una consulta, generación o conversación y sus respuestas guardadas."""
-    entry = deletable_history(db, entry_id, user, STUDY_ACTIONS)
-    if entry.conversation_id is not None:
+    """Autor. Borra una consulta, generación, conversación o examen y sus datos guardados."""
+    entry = deletable_history(db, entry_id, user, (*STUDY_ACTIONS, HistoryAction.EXAM))
+    if entry.exam_id is not None:
+        delete_exams(db, [entry.exam_id])
+    elif entry.conversation_id is not None:
         delete_conversations(db, [entry.conversation_id])
     else:
         if entry.answer_id is not None:
@@ -671,8 +691,9 @@ def clear_history(
     user: Annotated[User, Depends(current_user)],
     db: Annotated[Session, Depends(get_db)],
 ):
-    """Autor. Borra todas sus consultas, conversaciones y generaciones con sus respuestas."""
+    """Autor. Borra todas sus consultas, conversaciones, generaciones y exámenes."""
     study = STUDY_ACTIONS
+    delete_exams(db, list(db.scalars(select(Exam.id).where(Exam.user_id == user.id))))
     delete_conversations(
         db, list(db.scalars(select(Conversation.id).where(Conversation.user_id == user.id)))
     )
@@ -700,7 +721,7 @@ def clear_history(
     response_model=ExamOut,
     status_code=201,
     responses={503: {"model": ErrorResponse}},
-    dependencies=STUDY,
+    dependencies=AI,
     tags=["examenes"],
 )
 def create_exam(
@@ -712,7 +733,7 @@ def create_exam(
     user_id = user.id  # el rollback previo a la llamada al LLM expira `user`
     try:
         questions, minutes = exams.make_questions(db, body)
-    except (ValueError, OSError) as exc:
+    except (ProviderError, OSError) as exc:
         raise ai_unavailable(
             exc, "El servicio de generación de exámenes no está disponible."
         ) from exc
@@ -758,6 +779,24 @@ def owned_exam(db: Session, exam_id: int, user: User) -> Exam:
     if exam is None or exam.user_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Examen no encontrado.")
     return exam
+
+
+@router.delete(
+    "/exams/{exam_id}",
+    status_code=204,
+    responses=NOT_FOUND,
+    dependencies=STUDY,
+    tags=["examenes"],
+)
+def delete_exam(
+    exam_id: Id,
+    user: Annotated[User, Depends(current_user)],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Autor del examen. Borra el examen, su clave de corrección y su entrada de historial."""
+    owned_exam(db, exam_id, user)
+    delete_exams(db, [exam_id])
+    db.commit()
 
 
 @router.get(

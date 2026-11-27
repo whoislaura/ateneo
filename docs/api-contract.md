@@ -70,11 +70,12 @@ Cada usuario tiene un único rol. Sin sesión válida: 401. Sin permiso: 403. Re
 | `DELETE /documents/{document_id}` | CU-03 | AT-10 | Profesor, Administrador | 204; retira, no borra |
 | `GET /documents/{document_id}/pages/{page_number}` | CU-05 | AT-12 | Todos | `PageOut` para verificar una cita |
 | `GET /history` | CU-04 | AT-11 | Estudiante, Profesor | `HistoryEntryOut[]` de consultas, conversaciones (`action: conversation`, con `conversation_id`) y generaciones propias, más recientes primero. `limit` de 1 a 100 (20 por defecto), `offset` desde 0 |
-| `DELETE /history/{entry_id}` | CU-04 | AT-11 | Autor | 204; borra la consulta, generación o conversación (con sus mensajes) y sus respuestas guardadas |
-| `DELETE /history` | CU-04 | AT-11 | Autor | 204; borra todas sus consultas, conversaciones y generaciones con sus respuestas |
+| `DELETE /history/{entry_id}` | CU-04 | AT-11 | Autor | 204; borra la consulta, generación, conversación (con sus mensajes) o examen (con su clave) y sus datos guardados |
+| `DELETE /history` | CU-04 | AT-11 | Autor | 204; borra todas sus consultas, conversaciones, generaciones y exámenes con sus respuestas |
 | `POST /exams` | CU-06 | AT-27 | Estudiante, Profesor | 201 `ExamOut` sin respuestas. 422 si el corpus no permite generar la cantidad solicitada con citas verificables. 503 si falla el proveedor de IA |
 | `GET /exams` | CU-06 | AT-27 | Estudiante, Profesor | `ExamOut[]` propios, más recientes primero. `limit` de 1 a 100 (20 por defecto), `offset` desde 0 |
 | `GET /exams/{exam_id}` | CU-06 | AT-27 | Autor | `ExamOut` |
+| `DELETE /exams/{exam_id}` | CU-06 | | Autor | 204; borra el examen, su clave de corrección, citas y entrada de historial. 404 si es de otro usuario |
 | `GET /exams/{exam_id}/answers` | CU-06, CU-05 | AT-27 | Autor | `ExamAnswerOut[]` con citas |
 | `GET /exams/{exam_id}/pdf` | CU-06 | | Autor | `application/pdf`: examen para el estudiante, sin soluciones |
 | `GET /exams/{exam_id}/answers/pdf` | CU-06, CU-05 | | Autor | `application/pdf`: clave de corrección con soluciones, puntuación y citas |
@@ -149,6 +150,8 @@ La pantalla Consulta es un chat. `POST /conversations` y `POST /conversations/{i
 - Cada mensaje del asistente se guarda como un `Answer` (`kind = query`) con sus `Citation`, así que `POST /feedback` con su `answer_id` y el panel de administración funcionan igual.
 - Solo el propietario ve, amplía o borra una conversación: de otro usuario responde 404. Admin recibe 403 como en el resto de rutas de estudio.
 - La conversación aparece una vez en `GET /history` y se borra con `DELETE /history/{entry_id}` o `DELETE /history`.
+- Si se borra una conversación mientras se espera la respuesta de un turno, ese turno responde 404 al terminar y no guarda nada.
+- Límite por usuario en `POST /queries`, `/generations`, `/conversations`, `/conversations/{id}/messages` y `/exams`: `ATENEO_AI_MAX_REQUESTS` (20) peticiones por `ATENEO_AI_WINDOW_SECONDS` (600, ventana deslizante, en memoria del proceso); al superarlo, 429 con `Retry-After`.
 
 `POST /queries` no cambia y sigue sin memoria.
 
