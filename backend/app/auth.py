@@ -18,6 +18,7 @@ import os
 import secrets
 import threading
 import time
+from collections import deque
 from datetime import UTC, datetime, timedelta
 from functools import cache
 from typing import Annotated
@@ -39,6 +40,9 @@ MIN_PASSWORD = 8
 LOGIN_MAX_ATTEMPTS = int(os.environ.get("ATENEO_LOGIN_MAX_ATTEMPTS", 5))
 LOGIN_IP_MAX_ATTEMPTS = int(os.environ.get("ATENEO_LOGIN_IP_MAX_ATTEMPTS", 50))
 LOGIN_WINDOW_SECONDS = int(os.environ.get("ATENEO_LOGIN_WINDOW_SECONDS", 900))
+# Peticiones por usuario a los endpoints que llaman al LLM (cuota del proveedor), ventana móvil.
+AI_MAX_REQUESTS = int(os.environ.get("ATENEO_AI_MAX_REQUESTS", 20))
+AI_WINDOW_SECONDS = int(os.environ.get("ATENEO_AI_WINDOW_SECONDS", 600))
 # Proxies propios delante de la API que añaden su entrada a X-Forwarded-For. 0: no se confía en la
 # cabecera (un cliente puede inventarla) y se usa la IP de la conexión.
 TRUSTED_PROXY_HOPS = int(os.environ.get("ATENEO_TRUSTED_PROXY_HOPS", 0))
@@ -154,6 +158,33 @@ class LoginLimiter:
 login_limiter = LoginLimiter()
 
 
+class AiLimiter:
+    """Peticiones al LLM por usuario en una ventana deslizante."""
+
+    # shortcut: memoria del proceso, como LoginLimiter; pasar a Redis con varios workers.
+    def __init__(self, clock=time.monotonic):
+        self.clock = clock
+        self.hits: dict[int, deque[float]] = {}
+        self._lock = threading.Lock()
+
+    def acquire(self, user_id: int) -> int:
+        """Registra la petición y devuelve 0, o los segundos de espera si el usuario se pasó."""
+        now = self.clock()
+        with self._lock:
+            if len(self.hits) > 10_000:  # acota la memoria
+                self.hits = {k: v for k, v in self.hits.items() if now - v[-1] < AI_WINDOW_SECONDS}
+            hits = self.hits.setdefault(user_id, deque())
+            while hits and now - hits[0] >= AI_WINDOW_SECONDS:
+                hits.popleft()
+            if len(hits) >= AI_MAX_REQUESTS:
+                return math.ceil(AI_WINDOW_SECONDS - (now - hits[0]))
+            hits.append(now)
+            return 0
+
+
+ai_limiter = AiLimiter()
+
+
 def create_session(db: Session, user: User) -> str:
     token = secrets.token_urlsafe(32)
     now = datetime.now(UTC)
@@ -199,6 +230,17 @@ def current_user(
     if user is None:
         raise unauthorized()
     return user
+
+
+def ai_quota(user: Annotated[User, Depends(current_user)]) -> None:
+    """Dependencia: 429 con Retry-After si el usuario agotó sus peticiones al LLM."""
+    wait = ai_limiter.acquire(user.id)
+    if wait:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            f"Demasiadas peticiones al asistente. Reintente en {math.ceil(wait / 60)} min.",
+            headers={"Retry-After": str(wait)},
+        )
 
 
 def require_roles(*roles: Role):

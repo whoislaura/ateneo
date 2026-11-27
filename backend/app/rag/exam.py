@@ -117,7 +117,7 @@ def load_passages(
     entre todo el material y solo se baraja si hay más del que cabe en el contexto.
     """
     statement = vector.select_chunks(
-        literal(0.0), year=year, subject=subject, topic=topic, limit=5000
+        literal(0.0), year=year, subject=subject, topic=topic, limit=1500
     ).order_by(DocumentRow.id, Chunk.page_number, Chunk.start_offset)
     rows = [dict(row) for row in db.execute(statement).mappings()]
     rows = [r for r in rows if len(content_terms(r["text"])) >= 5]
